@@ -6,3 +6,5 @@ add_subdirectory(boris)
 add_subdirectory(vanderpol)
 
 set(examples_to_install ${examples_to_install} PARENT_SCOPE)
+
+add_subdirectory(parareal)

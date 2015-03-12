@@ -16,7 +16,7 @@ namespace pfasst
       {
         auto coarseSweeper = this->get_coarsest();
         auto fineSweeper = this->get_finest();
-        auto trns = this->get_transfe();
+        auto trns = this->get_transfer((size_t)0);
        
         for (; this->get_time() < this->get_end_time(); this->advance_time()) {
           bool initial = this->get_step() == 0;
