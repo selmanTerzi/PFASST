@@ -2,21 +2,26 @@ set(examples_to_install ${examples_to_install})
 
 message(STATUS "  parareal")
 include_directories(
-    ${pfasst_INCLUDES}
     ${3rdparty_INCLUDES}
+    ${FFTW_INCLUDE_PATH}
+    ${pfasst_INCLUDES}
 )
 
 set(parareal_examples
-    parareal_test
+    parareal_impl
 )
 
 foreach(example ${parareal_examples})
     add_executable(${example} ${CMAKE_CURRENT_SOURCE_DIR}/${example}.cpp)
+    if(NOT FFTW_FOUND)
+        add_dependencies(${example} fftw3)
+    endif()
     if(${pfasst_NUM_DEPENDEND_TARGETS} GREATER 0)
         add_dependencies(${example} ${pfasst_DEPENDEND_TARGETS})
     endif()
     target_link_libraries(${example}
         ${3rdparty_DEPENDEND_LIBS}
+        ${FFTW_LIBRARIES}
     )
     if(pfasst_INSTALL_EXAMPLES)
         install(TARGETS ${example} RUNTIME DESTINATION bin)
