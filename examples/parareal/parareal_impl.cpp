@@ -1,4 +1,3 @@
-
 #include <iostream>
 #include <vector>
 
@@ -87,13 +86,17 @@ namespace pfasst
               coarse = *(g.begin()+j);
               fine = *(f.begin()+j);
               
+              std::cout << "i: " << i << " j: " << j << "\n";
+              
               EncapSweeper<time>& coarseSweeper = as_encap_sweeper<time>(coarse->get_finest());
               EncapSweeper<time>& fineSweeper = as_encap_sweeper<time>(fine->get_finest());
               
               if(i > 0) {
-                transfer->interpolate(fineSweeper.get_start_state(), coarseSweeper.get_start_state());
+                if(j > 0) transfer->interpolate(fineSweeper.get_start_state(), coarseSweeper.get_start_state());
+                fine->set_iteration(0);
                 fine->set_step(0);
                 fine->run();
+                deltaFineState = fineSweeper.get_factory()->create(solution);
                 deltaFineState->copy(fineSweeper.get_end_state());
                 fineState = fineSweeper.get_factory()->create(solution);
                 transfer->interpolate(fineState, coarseSweeper.get_end_state());
@@ -104,27 +107,30 @@ namespace pfasst
                 coarseSweeper.get_start_state()->copy(coarseState);
               }
               else {
-                coarseSweeper.get_factory()->create(solution);
+                coarseState = coarseSweeper.get_factory()->create(solution);
               }
               
+              
+              coarse->set_iteration(0);
               coarse->set_step(0);
               coarse->run();
               coarseState->copy(coarseSweeper.get_end_state());
               
               if(deltaFineState) {
+                std::cout << "deltaFineState\n";
                 transfer->interpolate(fineSweeper.get_end_state(), coarseState);
                 fineSweeper.get_end_state()->saxpy(1.0, deltaFineState);
                 transfer->restrict(coarseSweeper.get_end_state(),fineSweeper.get_end_state());
               }
-            }
+            } // loop over time steps
             if(i > 0) {
               coarseState = as_encap_sweeper<time>((*(g.begin()+i-1))->get_finest()).get_end_state();
             }
             else {
               coarseState.reset();
             }
-          }
-        }
+          } // loop over parareal iterations
+        } // function run_parareal
       }; // Class Parareal
     } // namespace parareal
   } // namespace examples
@@ -136,14 +142,14 @@ int main(int argc, char** argv)
   pfasst::init(argc, argv,
                pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts,
                pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_logs);
-  auto nsteps = 16;
-  auto dt     = 0.01;
-  auto niters = 4;
-  auto const nnodes = 8;
-  auto const ndofs  = 128;
-  auto const quad_type = pfasst::quadrature::QuadratureType::GaussLegendre;
-        
+  const size_t  nsteps = 5;
+  const pfasst::time_precision  dt     = 0.01;
+  const size_t  niters = 3;
+  const size_t  nnodes = 8;
+  const size_t  ndofs  = 128;
+  const pfasst::quadrature::QuadratureType quad_type = pfasst::quadrature::QuadratureType::GaussLegendre;
+  
   pfasst::examples::parareal::Parareal<> parareal;
-  parareal.run_parareal(nsteps,dt,nnodes,niters,ndofs,quad_type);
+  parareal.run_parareal(nsteps,niters,dt,nnodes,ndofs,quad_type);
 }
 #endif

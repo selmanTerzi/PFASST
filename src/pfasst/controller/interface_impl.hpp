@@ -1,6 +1,7 @@
 #include "pfasst/controller/interface.hpp"
 
 #include "pfasst/config.hpp"
+#include <iostream>
 
 
 namespace pfasst
@@ -85,7 +86,9 @@ namespace pfasst
   template<typename time>
   void Controller<time>::set_step(size_t n)
   {
+    std::cout << "t before: " << t << " n: " << n << " step: " << step << " dt: " << dt ;
     t += (n - step) * dt;
+    std::cout << " t after: " << t << "\n";
     step = n;
   }
 
