@@ -37,6 +37,7 @@ namespace pfasst
 
           auto factory = make_shared<VectorFactory<double>>(ndofs);
           auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
+          sweeper->set_residual_tolerances(1e-8, 0.0);
 
           sweeper->set_quadrature(quad);
           sweeper->set_factory(factory);
@@ -44,7 +45,7 @@ namespace pfasst
           sdc->add_level(sweeper);
 
           // 1 SDC controller for each time step
-          sdc->set_duration(startTime, startTime+dt, dt, 2);
+          sdc->set_duration(startTime, startTime+dt, dt, 20);
           sdc->setup();
           
           auto q0 = sweeper->get_start_state();
@@ -58,8 +59,9 @@ namespace pfasst
           g.clear();
           f.clear();
           for(size_t i = 0 ; i < nsteps; i++) {
-            g.push_back(getSDC((nnodes-1)/3, ndofs/2, dt, i*dt, quad_type));
+//             g.push_back(getSDC((nnodes-1)/3, ndofs/2, dt, i*dt, quad_type));
             f.push_back(getSDC(nnodes, ndofs, dt, i*dt, quad_type));
+            g.push_back(getSDC(nnodes, ndofs, dt, i*dt, quad_type));
           }
           transfer = make_shared<SpectralTransfer1D<>>();
         }
@@ -78,27 +80,35 @@ namespace pfasst
           shared_ptr<Encapsulation<double>> coarseState(nullptr);
           shared_ptr<Encapsulation<double>> fineState(nullptr);
           shared_ptr<Encapsulation<double>> deltaFineState(nullptr);
+          shared_ptr<Encapsulation<double>> startState(nullptr);
           
-          for(size_t i = 0; i < niters; i++) {
-            for(size_t j = 0; j < nsteps; j++) {
-              if(i > j + 1) continue;
+          for(size_t k = 0; k < niters; k++) {
+            for(size_t n = 0; n < nsteps; n++) {
+              if(k > n + 1) continue;
               
-              coarse = *(g.begin()+j);
-              fine = *(f.begin()+j);
+              coarse = *(g.begin()+n);
+              fine = *(f.begin()+n);
               
-              std::cout << "i: " << i << " j: " << j << "\n";
+              std::cout << "k: " << k << " n: " << n << "\n";
               
               EncapSweeper<time>& coarseSweeper = as_encap_sweeper<time>(coarse->get_finest());
               EncapSweeper<time>& fineSweeper = as_encap_sweeper<time>(fine->get_finest());
               
-              if(i > 0) {
-                if(j > 0) transfer->interpolate(fineSweeper.get_start_state(), coarseSweeper.get_start_state());
-                fine->set_iteration(0);
+              if(!startState) {
+                startState = coarseSweeper.get_factory()->create(solution);
+                startState->copy(coarseSweeper.get_start_state());
+              }
+                
+              if(k > 0) {
+                if(n > 0) transfer->interpolate(fineSweeper.get_start_state(), coarseSweeper.get_start_state());
+                std::cout << "Fine-Sweep" << "\n";
                 fine->set_step(0);
                 fine->run();
-                deltaFineState = fineSweeper.get_factory()->create(solution);
+                // Calculate the correction value
+                if(!deltaFineState) deltaFineState = fineSweeper.get_factory()->create(solution);
                 deltaFineState->copy(fineSweeper.get_end_state());
-                fineState = fineSweeper.get_factory()->create(solution);
+                // Interpolated coarse value
+                if(!fineState) fineState = fineSweeper.get_factory()->create(solution);
                 transfer->interpolate(fineState, coarseSweeper.get_end_state());
                 deltaFineState->saxpy(-1.0, fineState);
               }
@@ -108,23 +118,26 @@ namespace pfasst
               }
               else {
                 coarseState = coarseSweeper.get_factory()->create(solution);
+                coarseState->copy(coarseSweeper.get_start_state());
+                coarseState->saxpy(-1.0, startState);
+                std::cout << "startState-Error: " << coarseState->norm0() << "\n";
+                
               }
               
-              
-              coarse->set_iteration(0);
+              std::cout << "Coarse-Sweep" << "\n";
               coarse->set_step(0);
               coarse->run();
-              coarseState->copy(coarseSweeper.get_end_state());
+              if(n < nsteps -1) coarseState->copy(coarseSweeper.get_end_state());
               
               if(deltaFineState) {
-                std::cout << "deltaFineState\n";
-                transfer->interpolate(fineSweeper.get_end_state(), coarseState);
-                fineSweeper.get_end_state()->saxpy(1.0, deltaFineState);
-                transfer->restrict(coarseSweeper.get_end_state(),fineSweeper.get_end_state());
+                transfer->interpolate(fineState, coarseState);
+                fineState->saxpy(1.0, deltaFineState);
+                transfer->restrict(coarseState,fineState);
+                coarseSweeper.get_end_state()->copy(coarseState);
               }
             } // loop over time steps
-            if(i > 0) {
-              coarseState = as_encap_sweeper<time>((*(g.begin()+i-1))->get_finest()).get_end_state();
+            if(k > 0) {
+              coarseState->copy(as_encap_sweeper<time>((*(g.begin()+k-1))->get_finest()).get_end_state());
             }
             else {
               coarseState.reset();
@@ -143,7 +156,7 @@ int main(int argc, char** argv)
                pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts,
                pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_logs);
   const size_t  nsteps = 5;
-  const pfasst::time_precision  dt     = 0.01;
+  const double  dt     = 0.01;
   const size_t  niters = 3;
   const size_t  nnodes = 8;
   const size_t  ndofs  = 128;
