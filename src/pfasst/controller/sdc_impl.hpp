@@ -26,7 +26,7 @@ namespace pfasst
         }
       }
       sweeper->post_step();
-      sweeper->advance();
+      if(this->get_time() + this->get_time_step() < this->get_end_time()) sweeper->advance();
     }
   }
 }  // ::pfasst
