@@ -8,7 +8,7 @@ include_directories(
 )
 
 set(parareal_examples
-    parareal_impl
+    parareal
 )
 
 foreach(example ${parareal_examples})
