@@ -80,7 +80,7 @@ namespace pfasst
             
             fine = getSDC(nnodes, ndofs_fine);
             coarse = getSDC(nnodes, ndofs_coarse);
-//             coarse = getSDC(nnodes/3, ndofs_coarse, dt, i*dt, false);
+//            coarse = getSDC(nnodes/3, ndofs_coarse);
             
             err = factory->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
@@ -108,12 +108,19 @@ namespace pfasst
             
             if(start_state) transfer->restrict(coarseSweeper.get_start_state(), start_state);
                 
-            CLOG(INFO, "Parareal")  << "Coarse-Sweep" << endl;
+            CLOG(INFO, "Parareal")  << "Coarse-Sweep";
             coarse->run();
             
-            CVLOG(1, "Parareal") << "End_state coarse" << vector<double>(as_vector<double,time>(coarseSweeper.get_end_state()));
-            transfer->interpolate(end_state, coarseSweeper.get_end_state());
-            CVLOG(1, "Parareal") << "End_state interpolated" << vector<double>(as_vector<double,time>(end_state));
+//             CVLOG(1, "Parareal") << "End_state coarse" << vector<double>(as_vector<double,time>(coarseSweeper.get_end_state()));
+            
+            if(as_vector<double>(coarseSweeper.get_end_state()).size() == as_vector<double>(end_state).size()) {
+              end_state->copy(coarseSweeper.get_end_state());
+            }
+            else {
+              transfer->interpolate(end_state, coarseSweeper.get_end_state());
+            }
+            
+//             CVLOG(1, "Parareal") << "End_state interpolated" << vector<double>(as_vector<double,time>(end_state));
           }
           
           void do_fine(shared_ptr<Encapsulation<>> start_state,
@@ -125,7 +132,7 @@ namespace pfasst
             
             if(start_state) fineSweeper.get_start_state()->copy(start_state);
                 
-            CLOG(INFO, "Parareal")  << "Fine-Sweep" << endl;
+            CLOG(INFO, "Parareal")  << "Fine-Sweep";
             fine->run();
             
             end_state->copy(fineSweeper.get_end_state());
@@ -137,10 +144,10 @@ namespace pfasst
           static void init_opts()
           {
             pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts();
-            pfasst::config::options::add_option<size_t>("Parareal", "num_par_iter", "num Parareal iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "num Parareal iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "num Fine Sweep iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "num Coarse Sweep iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_par_iter", "Number of Parareal iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "Number of Fine Sweep iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "Number of Coarse Sweep iterations");
           }
           
           static void init_logs()
@@ -165,7 +172,7 @@ namespace pfasst
               for(size_t n = 0; n < nsteps; n++) {
                 if(k > n + 1) continue;
                 
-                CLOG(INFO, "Parareal") << "k: " << k << " n: " << n << endl;
+                CLOG(INFO, "Parareal") << "k: " << k << " n: " << n;
                 
                 if(n >= k) do_coarse(n > 0 ? u[n-1] : nullptr, coarseState, n*dt);
                 if(n >= k) do_fine(n > 0 ? u[n-1] : nullptr, fineState, n*dt);
@@ -179,7 +186,7 @@ namespace pfasst
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
                     
-                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0() << endl;
+                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();
                     
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
@@ -193,12 +200,12 @@ namespace pfasst
                 
                 err->copy(uExact[n]);
                 err->saxpy(-1.0, u[n]);
-                CLOG(INFO, "Parareal") << "Error: " << err->norm0() << endl;
+                CLOG(INFO, "Parareal") << "Error: " << err->norm0();
                 errors.insert(vtype(ktype(n, k-1), err->norm0()));
-              }
+              } // loop over time slices
             } // loop over parareal iterations
           } // function run_parareal
-      }; // Class Parareal
+      }; // class Parareal
     } // namespace parareal
   } // namespace examples
 } // namespace pfasst
