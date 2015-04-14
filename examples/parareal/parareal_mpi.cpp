@@ -49,6 +49,8 @@ namespace pfasst
           shared_ptr<Encapsulation<double>> err;
           
           shared_ptr<Encapsulation<double>> startState; // start_state for current time-slice
+          vector<bool> converged;
+          vector<bool> done;
           error_map errors;
           
           double dt;
@@ -108,6 +110,8 @@ namespace pfasst
               uFine.push_back(factory->create(solution));
               uCoarse.push_back(factory->create(solution));
               uExact.push_back(factory->create(solution));
+              converged.push_back(false);
+              done.push_back(false);
               sweeper->exact(uExact[i], startTime + (i+1)*dt);
             }
           }
@@ -132,7 +136,7 @@ namespace pfasst
             }
           }
           
-          void do_fine(shared_ptr<Encapsulation<>> start_state,
+          bool do_fine(shared_ptr<Encapsulation<>> start_state,
                        shared_ptr<Encapsulation<>> end_state,
                        const double startTime) 
           {
@@ -145,6 +149,7 @@ namespace pfasst
             fine->run();
             
             end_state->copy(fineSweeper.get_end_state());
+            return fineSweeper.converged();
           }
           
           void get_state(const size_t n, const size_t k)
@@ -201,15 +206,17 @@ namespace pfasst
             for(size_t k = 0; k < niters; k++) {
               for(size_t n = 0; n < nsteps; n++) {
                 n_global = n_start + n;
-                if(k > n_global + 1) continue;
                 
-                CLOG(INFO, "Parareal") << "rank: " << comm->rank() << " k: " << k << " n: " << n_global;
+                if(done[n] || k > n_global + 1) continue;
                 
-                if(n_global >= k) get_state(n, k);
+                CLOG(INFO, "Parareal") << " rank: " << comm->rank() << " k: " << k << " n: " << n_global;
                 
-                if(n_global >= k) do_coarse(startState, coarseState, n_global*dt);
-                if(n_global >= k && k < niters - 1) do_fine(startState, fineState, n_global*dt);
-                
+                if(n_global >= k) {
+                  get_state(n, k);
+                  do_coarse(startState, coarseState, n_global*dt);
+                  if(k < niters - 1) converged[n] = do_fine(startState, fineState, n_global*dt);
+                }
+                  
                 if(k > 0) {
                   u[n]->copy(uFine[n]);
                   
@@ -218,28 +225,34 @@ namespace pfasst
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
                     
-                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0() << " k: " << k << " n: " << n_global;
+                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0() << " rank: " << comm->rank() << " k: " << k << " n: " << n_global;
                     
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
                   }
+                  
+                  if(converged[n]) done[n] = true;
                 }
                 else {
                   u[n]->copy(coarseState);
                 }
                 
-                if(n == nsteps - 1 && comm->rank() < comm->size() - 1) {
-                  u[n]->send(comm, (comm->rank()+1)*(k+1), false);
+                if(n_global >= k) {
+                  uCoarse[n]->copy(coarseState);
+                  uFine[n]->copy(fineState);
                 }
-                
-                uCoarse[n]->copy(coarseState);
-                uFine[n]->copy(fineState);
                 
                 err->copy(uExact[n]);
                 err->saxpy(-1.0, u[n]);
-                CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
+                CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " rank: " << comm->rank() << " k: " << k << " n: " << n_global;
                 errors.insert(vtype(ktype(n, k-1), err->norm0()));
+                
+              } // loop over time slices
+              
+              if(comm->rank() < comm->size() - 1) {
+                u[nsteps-1]->send(comm, (comm->rank()+1)*(k+1), false);
               }
+              
             } // loop over parareal iterations
           } // function run_parareal
       }; // Class Parareal
