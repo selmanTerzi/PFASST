@@ -141,10 +141,10 @@ namespace pfasst
           static void init_opts()
           {
             pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts();
-            pfasst::config::options::add_option<size_t>("Parareal", "num_par_iter", "num Parareal iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "num Parareal iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "num Fine Sweep iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "num Coarse Sweep iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_par_iter", "Number of Parareal iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "Number of Fine Sweep iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "Number of Coarse Sweep iterations");
           }
           
           static void init_logs()
