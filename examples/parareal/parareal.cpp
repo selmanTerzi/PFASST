@@ -111,9 +111,13 @@ namespace pfasst
             CLOG(INFO, "Parareal")  << "Coarse-Sweep" << endl;
             coarse->run();
             
-            CVLOG(1, "Parareal") << "End_state coarse" << vector<double>(as_vector<double,time>(coarseSweeper.get_end_state()));
-            transfer->interpolate(end_state, coarseSweeper.get_end_state());
-            CVLOG(1, "Parareal") << "End_state interpolated" << vector<double>(as_vector<double,time>(end_state));
+            // if coarse and fine have the same spatial dofs then don't interpolate
+            if(as_vector<double>(coarseSweeper.get_end_state()).size() == as_vector<double>(end_state).size()) {
+              end_state->copy(coarseSweeper.get_end_state());
+            } 
+            else { 
+              transfer->interpolate(end_state, coarseSweeper.get_end_state());
+            }
           }
           
           void do_fine(shared_ptr<Encapsulation<>> start_state,
