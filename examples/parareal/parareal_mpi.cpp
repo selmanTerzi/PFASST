@@ -3,6 +3,9 @@
 #include <vector>
 using namespace std;
 
+#include <mpi.h>
+#include <fftw3.h>
+
 #include <pfasst.hpp>
 #include <pfasst/config.hpp>
 #include <pfasst/logging.hpp>
@@ -10,10 +13,11 @@ using namespace std;
 #include <pfasst/interfaces.hpp>
 #include <pfasst/quadrature.hpp>
 #include <pfasst/encap/encap_sweeper.hpp>
+#include <pfasst/mpi_communicator.hpp>
+#include <pfasst/encap/mpi_vector.hpp>
 
 #include "advection_diffusion_sweeper.hpp"
 #include "spectral_transfer_1d.hpp"
-#include <fftw3.h>
 
 using namespace pfasst::encap;
 
@@ -24,10 +28,13 @@ namespace pfasst
     namespace parareal 
     {
       template<typename time = time_precision>
-      class Parareal 
+      class Parareal
       {
 
         private:
+          
+          ICommunicator* comm;
+          
           shared_ptr<SDC<time>> coarse; // coarse-level controller
           shared_ptr<SDC<time>> fine; // fine-level controller
           
@@ -40,6 +47,8 @@ namespace pfasst
           vector<shared_ptr<Encapsulation<double>>> uFine; // vector with fine-Sweep results
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
           shared_ptr<Encapsulation<double>> err;
+          
+          shared_ptr<Encapsulation<double>> startState; // start_state for current time-slice
           error_map errors;
           
           double dt;
@@ -52,7 +61,7 @@ namespace pfasst
             
             auto quad = quadrature::quadrature_factory(nnodes, pfasst::quadrature::QuadratureType::GaussLobatto);
             
-            auto factory = make_shared<VectorFactory<double>>(ndofs);
+            auto factory = make_shared<MPIVectorFactory<double>>(ndofs);
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
             
             sweeper->set_residual_tolerances(1e-8, 0.0);
@@ -62,8 +71,10 @@ namespace pfasst
             sdc->add_level(sweeper);
             sdc->setup();
             
-            auto q0 = sweeper->get_start_state();
-            sweeper->exact(q0, 0.0);
+            if(comm->rank() == 0) {
+              auto q0 = sweeper->get_start_state();
+              sweeper->exact(q0, 0.0);
+            }
             
             return sdc;
           }
@@ -72,8 +83,7 @@ namespace pfasst
                     const size_t ndofs_fine, const size_t ndofs_coarse,
                     const size_t nfineiters, const size_t ncrseiters) 
           {
-            
-            factory = make_shared<VectorFactory<double>>(ndofs_fine);
+            factory = make_shared<MPIVectorFactory<double>>(ndofs_fine);
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
             this->dt = dt;
             this->nfineiters = nfineiters;
@@ -91,12 +101,14 @@ namespace pfasst
             uCoarse.clear();
             uExact.clear();
             
+            double startTime = comm->rank() * nsteps * dt;
+            
             for(size_t i = 0 ; i < nsteps; i++) {
               u.push_back(factory->create(solution));
               uFine.push_back(factory->create(solution));
               uCoarse.push_back(factory->create(solution));
               uExact.push_back(factory->create(solution));
-              sweeper->exact(uExact[i],(i+1)*dt);
+              sweeper->exact(uExact[i], startTime + (i+1)*dt);
             }
           }
           
@@ -109,14 +121,13 @@ namespace pfasst
             
             if(start_state) transfer->restrict(coarseSweeper.get_start_state(), start_state);
                 
-            CLOG(INFO, "Parareal")  << "Coarse-Sweep";
+            CLOG(INFO, "Parareal") << "rank: " << comm->rank() << " Coarse-Sweep";
             coarse->run();
             
-            // if coarse and fine have the same spatial dofs then don't interpolate
             if(as_vector<double>(coarseSweeper.get_end_state()).size() == as_vector<double>(end_state).size()) {
               end_state->copy(coarseSweeper.get_end_state());
             } 
-            else { 
+            else {
               transfer->interpolate(end_state, coarseSweeper.get_end_state());
             }
           }
@@ -130,10 +141,22 @@ namespace pfasst
             
             if(start_state) fineSweeper.get_start_state()->copy(start_state);
                 
-            CLOG(INFO, "Parareal")  << "Fine-Sweep";
+            CLOG(INFO, "Parareal") << "rank: " << comm->rank() << " Fine-Sweep";
             fine->run();
             
             end_state->copy(fineSweeper.get_end_state());
+          }
+          
+          void get_state(const size_t n, const size_t k)
+          {
+            if((comm->rank() > 0 || n > 0) && !startState) startState = factory->create(solution); 
+            
+            if(n > 0) {
+              startState->copy(u[n-1]);
+            }
+            else if(comm->rank() > 0) {
+              startState->recv(comm, comm->rank()*(k+1), true);
+            }
           }
           
         public:
@@ -146,6 +169,7 @@ namespace pfasst
             pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
             pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "Number of Fine Sweep iterations");
             pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "Number of Coarse Sweep iterations");
+            pfasst::config::options::add_option<size_t>("Parareal", "ndt_per_proc", "Number of time slices per process");
           }
           
           static void init_logs()
@@ -153,7 +177,12 @@ namespace pfasst
             pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_logs();
             pfasst::log::add_custom_logger("Parareal");
           }
-        
+          
+          void set_comm(ICommunicator* comm)
+          {
+            this->comm = comm;
+          }
+          
           void run_parareal(const size_t nsteps, const size_t niters,
                             const size_t nfineiters, const size_t ncrseiters,
                             const double dt, const size_t nnodes, 
@@ -166,25 +195,30 @@ namespace pfasst
             shared_ptr<Encapsulation<double>> fineState = factory->create(solution);
             shared_ptr<Encapsulation<double>> delta = factory->create(solution);
             
+            size_t n_start = comm->rank() * nsteps;
+            size_t n_global;
+            
             for(size_t k = 0; k < niters; k++) {
               for(size_t n = 0; n < nsteps; n++) {
-                if(k > n + 1) continue;
+                n_global = n_start + n;
+                if(k > n_global + 1) continue;
                 
-                CLOG(INFO, "Parareal") << "k: " << k << " n: " << n;
+                CLOG(INFO, "Parareal") << "rank: " << comm->rank() << " k: " << k << " n: " << n_global;
                 
-                if(n >= k) do_coarse(n > 0 ? u[n-1] : nullptr, coarseState, n*dt);
-                if(n >= k && k < niters - 1) do_fine(n > 0 ? u[n-1] : nullptr, fineState, n*dt);
+                if(n_global >= k) get_state(n, k);
+                
+                if(n_global >= k) do_coarse(startState, coarseState, n_global*dt);
+                if(n_global >= k && k < niters - 1) do_fine(startState, fineState, n_global*dt);
                 
                 if(k > 0) {
                   u[n]->copy(uFine[n]);
                   
                   if(n >= k) {
-                    CLOG(INFO, "Parareal") << "Calculating delta";
                     
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
                     
-                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();;
+                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0() << " k: " << k << " n: " << n_global;
                     
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
@@ -193,12 +227,17 @@ namespace pfasst
                 else {
                   u[n]->copy(coarseState);
                 }
+                
+                if(n == nsteps - 1 && comm->rank() < comm->size() - 1) {
+                  u[n]->send(comm, (comm->rank()+1)*(k+1), false);
+                }
+                
                 uCoarse[n]->copy(coarseState);
                 uFine[n]->copy(fineState);
                 
                 err->copy(uExact[n]);
                 err->saxpy(-1.0, u[n]);
-                CLOG(INFO, "Parareal") << "Error: " << err->norm0();
+                CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
                 errors.insert(vtype(ktype(n, k-1), err->norm0()));
               }
             } // loop over parareal iterations
@@ -211,10 +250,12 @@ namespace pfasst
 #ifndef PFASST_UNIT_TESTING
 int main(int argc, char** argv)
 {
+  MPI_Init(&argc, &argv);
+  
   pfasst::init(argc, argv,
                pfasst::examples::parareal::Parareal<>::init_opts,
                pfasst::examples::parareal::Parareal<>::init_logs);
-  const size_t  nsteps = 5;
+  
   const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
   const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", 5);
   const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
@@ -222,9 +263,14 @@ int main(int argc, char** argv)
   const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 9);
   const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
   const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
+  const size_t  ndt_per_proc  = pfasst::config::get_value<size_t>("ndt_per_proc", 3);
   
+  pfasst::mpi::MPICommunicator comm(MPI_COMM_WORLD);
   pfasst::examples::parareal::Parareal<> parareal;
-  parareal.run_parareal(nsteps, npariters, nfineiters, ncrseiters, dt, nnodes, ndofs_fine, ndofs_coarse);
+  parareal.set_comm(&comm);
+  parareal.run_parareal(ndt_per_proc, npariters, nfineiters, ncrseiters, dt, nnodes, ndofs_fine, ndofs_coarse);
+  
   fftw_cleanup();
+  MPI_Finalize();
 }
 #endif
