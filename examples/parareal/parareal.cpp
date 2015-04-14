@@ -81,7 +81,7 @@ namespace pfasst
             
             fine = getSDC(nnodes, ndofs_fine);
             coarse = getSDC(nnodes, ndofs_coarse);
-//             coarse = getSDC(nnodes/3, ndofs_coarse, dt, i*dt, false);
+//            coarse = getSDC(nnodes/3, ndofs_coarse);
             
             err = factory->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
@@ -184,7 +184,7 @@ namespace pfasst
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
                     
-                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();;
+                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();
                     
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
@@ -200,10 +200,10 @@ namespace pfasst
                 err->saxpy(-1.0, u[n]);
                 CLOG(INFO, "Parareal") << "Error: " << err->norm0();
                 errors.insert(vtype(ktype(n, k-1), err->norm0()));
-              }
+              } // loop over time slices
             } // loop over parareal iterations
           } // function run_parareal
-      }; // Class Parareal
+      }; // class Parareal
     } // namespace parareal
   } // namespace examples
 } // namespace pfasst
