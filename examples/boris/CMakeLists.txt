@@ -2,7 +2,7 @@ set(examples_to_install ${examples_to_install})
 
 message(STATUS "  boris")
 
-option(pfasst_BORIS_SAME_LEVELS "Use identical levels with MLSDC" ON)
+option(pfasst_BORIS_SAME_LEVELS "Use identical levels with MLSDC" OFF)
 
 include_directories(
     ${3rdparty_INCLUDES}
@@ -10,10 +10,16 @@ include_directories(
 )
 add_subdirectory(bindings)
 
-set(boris_examples
-    boris_sdc
-    boris_mlsdc
-)
+if(${pfasst_WITH_MPI})
+    set(boris_examples
+        boris_pfasst
+    )
+else()
+    set(boris_examples
+        boris_sdc
+        boris_mlsdc
+    )
+endif()
 
 foreach(example ${boris_examples})
     add_executable(${example} ${CMAKE_CURRENT_SOURCE_DIR}/${example}.cpp)
@@ -30,15 +36,29 @@ foreach(example ${boris_examples})
     endif()
 endforeach(example)
 
-if(pfasst_BORIS_SAME_LEVELS)
-    get_target_property(boris_mlsdc_definitions boris_mlsdc COMPILE_DEFINITIONS)
-    if(${boris_mlsdc_definitions})
-        list(APPEND boris_mlsdc_definitions "BORIS_SAME_LEVELS")
-    else()
-        set(boris_mlsdc_definitions "BORIS_SAME_LEVELS")
+if(${pfasst_WITH_MPI})
+    include_directories(${MPI_CXX_INCLUDE_PATH})
+    foreach(example ${boris_examples})
+        if(MPI_COMPILE_FLAGS)
+            set_target_properties(${example} PROPERTIES COMPILE_FLAGS "${MPI_COMPILE_FLAGS}")
+        endif()
+        if(MPI_LINK_FLAGS)
+            set_target_properties(${example} PROPERTIES LINK_FLAGS "${MPI_LINK_FLAGS}")
+        endif()
+        target_link_libraries(${example} ${MPI_CXX_LIBRARIES})
+    endforeach(example)
+else()
+    if(pfasst_BORIS_SAME_LEVELS)
+        get_target_property(boris_mlsdc_definitions boris_mlsdc COMPILE_DEFINITIONS)
+        if(${boris_mlsdc_definitions})
+            list(APPEND boris_mlsdc_definitions "BORIS_SAME_LEVELS")
+        else()
+            set(boris_mlsdc_definitions "BORIS_SAME_LEVELS")
+        endif()
+        set_target_properties(boris_mlsdc PROPERTIES COMPILE_DEFINITIONS ${boris_mlsdc_definitions})
     endif()
-    set_target_properties(boris_mlsdc PROPERTIES COMPILE_DEFINITIONS ${boris_mlsdc_definitions})
 endif()
+
 
 add_feature_info(Dummy-Boris-MLSDC
     pfasst_BORIS_SAME_LEVELS

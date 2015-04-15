@@ -139,6 +139,7 @@ namespace pfasst
         BCVLOG(9) << "writing center particle to file";
         this->data_stream_fmt % (iter+1) % sweep % -1
                               % center[0] % center[1] % center[2]
+                              // cppcheck-suppress zerodiv
                               % 0 % 0 % 0
                               % energy % drift % residual;
         this->data_stream << this->data_stream_fmt << endl;
@@ -154,6 +155,7 @@ namespace pfasst
         this->log_indent->increment(9);
         for (size_t p = 0; p < cloud->size(); ++p) {
           BCVLOG(9) << "writing cloud particle " << p << " to file";
+          // cppcheck-suppress zerodiv
           this->data_stream_fmt % (iter+1) % sweep % p
                                 % cloud->positions()[p * cloud->dim()] % cloud->positions()[p * cloud->dim() + 1] % cloud->positions()[p * cloud->dim() + 2]
                                 % cloud->velocities()[p * cloud->dim()] % cloud->velocities()[p * cloud->dim() + 1] % cloud->velocities()[p * cloud->dim() + 2]
@@ -194,7 +196,7 @@ namespace pfasst
       }
 
       template<typename scalar, typename time>
-      void BorisSweeper<scalar, time>::update_velocity(const size_t m, const time ds, const vector<time> nodes)
+      void BorisSweeper<scalar, time>::update_velocity(const size_t m, const time ds, const vector<time>& nodes)
       {
         BCVLOG(4) << "updating velocity (" << m << "->" << m+1 << ") with ds=" << ds;
         this->log_indent->increment(4);
@@ -546,11 +548,14 @@ namespace pfasst
           zero(dst_q[m]);
           zero(dst_qq[m]);
           for (size_t n = 0; n < nnodes; ++n) {
+            // for positions
+            *(dst_qq[m].get()) += rhs[n] * dt * dt * this->qq_mat(m, n)
+                                  + this->start_particles->velocities() * dt * this->q_mat(m, n);
+            // for velocities
             *(dst_q[m].get()) += rhs[n] * dt * this->q_mat(m, n);
-            *(dst_qq[m].get()) += rhs[n] * dt * dt * this->qq_mat(m, n);
           }
-          BCVLOG(6) << "integral(Q)[" << m << "]:  " << *(dst_q[m].get());
           BCVLOG(6) << "integral(QQ)[" << m << "]: " << *(dst_qq[m].get());
+          BCVLOG(6) << "integral(Q)[" << m << "]:  " << *(dst_q[m].get());
         }
         this->log_indent->decrement(6);
       }
@@ -564,21 +569,35 @@ namespace pfasst
         assert(dst.size() == nnodes);
 
         vector<shared_ptr<encap_type>> dst_cast(nnodes);
+        vector<shared_ptr<acceleration_type>> q_int(nnodes), qq_int(nnodes);
         for (size_t m = 0; m < nnodes; ++m) {
           dst_cast[m] = dynamic_pointer_cast<encap_type>(dst[m]);
           assert(dst_cast[m]);
+
+          qq_int[m] = make_shared<acceleration_type>(this->start_particles->size() * this->start_particles->dim());
+          q_int[m] = make_shared<acceleration_type>(this->start_particles->size() * this->start_particles->dim());
         }
+
+        // cf. pySDC: QF(u)
+        this->integrate(dt, q_int, qq_int);
 
         for (size_t m = 1; m < nnodes; ++m) {
           BCVLOG(8) << "for node " << m;
           zero(dst_cast[m]->positions());
           zero(dst_cast[m]->velocities());
-          for (size_t j = 0; j < nnodes; ++j) {
-            dst_cast[m]->positions() += this->particles[j]->velocities() * this->q_mat(m, j) * dt;
-            dst_cast[m]->velocities() += this->build_rhs(j) * this->q_mat(m, j) * dt;
-          }
+
+          dst_cast[m]->positions() = *(qq_int[m].get());
+          dst_cast[m]->velocities() = *(q_int[m].get());
+
+          // cf. pySDC: L.u[0] - L.u[m+1] (in boris_2nd_order#compute_residual())
           dst_cast[m]->positions() += this->start_particles->positions() - this->particles[m]->positions();
           dst_cast[m]->velocities() += this->start_particles->velocities() - this->particles[m]->velocities();
+
+          // add tau correction (if available)
+          if (this->tau_q_corrections.size() > 0 && this->tau_qq_corrections.size()) {
+            dst_cast[m]->positions() += *(this->tau_qq_corrections[m].get());
+            dst_cast[m]->velocities() += *(this->tau_q_corrections[m].get());
+          }
         }
 
         this->log_indent->decrement(8);
@@ -695,6 +714,12 @@ namespace pfasst
               BCVLOG(2) << "+= tau_qq[" << m << "] (<" << this->tau_qq_corrections[m] << ">" << *(this->tau_qq_corrections[m].get()) << ")";
               this->s_integrals[m] += *(this->tau_q_corrections[m].get());
               this->ss_integrals[m] += *(this->tau_qq_corrections[m].get());
+              if (m > 0) {
+                BCVLOG(2) << "-= tau_q[" << m-1 << "]  (<" << this->tau_q_corrections[m-1]  << ">" << *(this->tau_q_corrections[m-1].get()) << ")";
+                BCVLOG(2) << "-= tau_qq[" << m-1 << "] (<" << this->tau_qq_corrections[m-1] << ">" << *(this->tau_qq_corrections[m-1].get()) << ")";
+                this->s_integrals[m] -= *(this->tau_q_corrections[m-1].get());
+                this->ss_integrals[m] -= *(this->tau_qq_corrections[m-1].get());
+              }
             }
             this->log_indent->decrement(2);
           }
@@ -807,29 +832,31 @@ namespace pfasst
       template<typename scalar, typename time>
       void BorisSweeper<scalar, time>::post(ICommunicator* comm, int tag)
       {
-        UNUSED(comm); UNUSED(tag);
-        // TODO: implement BorisSweeper::post
+        this->start_particles->post(comm, tag);
       }
 
       template<typename scalar, typename time>
       void BorisSweeper<scalar, time>::send(ICommunicator* comm, int tag, bool blocking)
       {
-        UNUSED(comm); UNUSED(tag); UNUSED(blocking);
-        // TODO: implement BorisSweeper::send
+        this->end_particles->send(comm, tag, blocking);
       }
 
       template<typename scalar, typename time>
       void BorisSweeper<scalar, time>::recv(ICommunicator* comm, int tag, bool blocking)
       {
-        UNUSED(comm); UNUSED(tag); UNUSED(blocking);
-        // TODO: implement BorisSweeper::recv
+        this->start_particles->recv(comm, tag, blocking);
+        if (this->quadrature->left_is_node()) {
+          this->particles[0]->copy(this->start_particles);
+        }
       }
 
       template<typename scalar, typename time>
       void BorisSweeper<scalar, time>::broadcast(ICommunicator* comm)
       {
-        UNUSED(comm);
-        // TODO: implement BorisSweeper::broadcast
+        if (comm->rank() == comm->size() - 1) {
+          this->start_particles->copy(this->end_particles);
+        }
+        this->start_particles->broadcast(comm);
       }
 
       template<typename scalar, typename time>
