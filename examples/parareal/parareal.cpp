@@ -1,6 +1,7 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <ctime>
 using namespace std;
 
 #include <pfasst.hpp>
@@ -42,20 +43,26 @@ namespace pfasst
           shared_ptr<Encapsulation<double>> err;
           error_map errors;
           
+          vector<bool> converged;
+          vector<bool> done;
+          
           double dt;
           size_t nfineiters;
           size_t ncrseiters;
           
-          shared_ptr<SDC<time>> getSDC(const size_t nnodes, const size_t ndofs)
+          shared_ptr<SDC<time>> getSDC(const size_t nnodes,
+                                       const quadrature::QuadratureType quad_type,
+                                       const size_t ndofs, 
+                                       const double abs_res_tol, const double rel_res_tol)
           {
             auto sdc = make_shared<SDC<time>>();
             
-            auto quad = quadrature::quadrature_factory(nnodes, pfasst::quadrature::QuadratureType::GaussLobatto);
+            auto quad = quadrature::quadrature_factory(nnodes, quad_type);
             
             auto factory = make_shared<VectorFactory<double>>(ndofs);
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
             
-            sweeper->set_residual_tolerances(1e-8, 0.0);
+            sweeper->set_residual_tolerances(abs_res_tol, rel_res_tol);
             sweeper->set_quadrature(quad);
             sweeper->set_factory(factory);
             
@@ -68,9 +75,11 @@ namespace pfasst
             return sdc;
           }
         
-          void init(const size_t nsteps, const double dt, const size_t nnodes, 
+          void init(const size_t nsteps, const double dt, const size_t nnodes,
+                    const quadrature::QuadratureType quad_type,
                     const size_t ndofs_fine, const size_t ndofs_coarse,
-                    const size_t nfineiters, const size_t ncrseiters) 
+                    const size_t nfineiters, const size_t ncrseiters,
+                    const double abs_res_tol, const double rel_res_tol)
           {
             
             factory = make_shared<VectorFactory<double>>(ndofs_fine);
@@ -79,9 +88,8 @@ namespace pfasst
             this->nfineiters = nfineiters;
             this->ncrseiters = ncrseiters;
             
-            fine = getSDC(nnodes, ndofs_fine);
-            coarse = getSDC(nnodes, ndofs_coarse);
-//            coarse = getSDC(nnodes/3, ndofs_coarse);
+            fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol);
+            coarse = getSDC((nnodes + 1) / 2, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
             
             err = factory->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
@@ -97,6 +105,8 @@ namespace pfasst
               uCoarse.push_back(factory->create(solution));
               uExact.push_back(factory->create(solution));
               sweeper->exact(uExact[i],(i+1)*dt);
+              converged.push_back(false);
+              done.push_back(false);
             }
           }
           
@@ -121,7 +131,7 @@ namespace pfasst
             }
           }
           
-          void do_fine(shared_ptr<Encapsulation<>> start_state,
+          bool do_fine(shared_ptr<Encapsulation<>> start_state,
                        shared_ptr<Encapsulation<>> end_state,
                        const double startTime) 
           {
@@ -134,6 +144,15 @@ namespace pfasst
             fine->run();
             
             end_state->copy(fineSweeper.get_end_state());
+            return fineSweeper.converged();
+          }
+          
+          void echo_error(size_t n, size_t k)
+          {
+            err->copy(uExact[n]);
+            err->saxpy(-1.0, u[n]);
+            CLOG(INFO, "Parareal") << "Error: " << err->norm0();
+            errors.insert(vtype(ktype(n, k-1), err->norm0()));
           }
           
         public:
@@ -156,30 +175,36 @@ namespace pfasst
         
           void run_parareal(const size_t nsteps, const size_t niters,
                             const size_t nfineiters, const size_t ncrseiters,
-                            const double dt, const size_t nnodes, 
-                            const size_t ndofs_fine, const size_t ndofs_coarse)
+                            const double dt, const size_t nnodes,
+                            const quadrature::QuadratureType quad_type,
+                            const size_t ndofs_fine, const size_t ndofs_coarse,
+                            const double abs_res_tol, const double rel_res_tol)
           {
             
-            init(nsteps, dt, nnodes, ndofs_fine, ndofs_coarse, nfineiters, ncrseiters);
+            init(nsteps, dt, nnodes, quad_type, ndofs_fine, ndofs_coarse, 
+                 nfineiters, ncrseiters, abs_res_tol, rel_res_tol);
             
             shared_ptr<Encapsulation<double>> coarseState = factory->create(solution);
             shared_ptr<Encapsulation<double>> fineState = factory->create(solution);
             shared_ptr<Encapsulation<double>> delta = factory->create(solution);
             
+            clock_t timeMeasure = clock();
+            
             for(size_t k = 0; k < niters; k++) {
               for(size_t n = 0; n < nsteps; n++) {
-                if(k > n + 1) continue;
+                if(done[n] || k > n + 1) continue;
                 
                 CLOG(INFO, "Parareal") << "k: " << k << " n: " << n;
                 
-                if(n >= k) do_coarse(n > 0 ? u[n-1] : nullptr, coarseState, n*dt);
-                if(n >= k && k < niters - 1) do_fine(n > 0 ? u[n-1] : nullptr, fineState, n*dt);
+                if(n >= k) {
+                  do_coarse(n > 0 ? u[n-1] : nullptr, coarseState, n*dt);
+                  if(!converged[n] && k < niters - 1) converged[n] = do_fine(n > 0 ? u[n-1] : nullptr, fineState, n*dt);
+                }
                 
                 if(k > 0) {
                   u[n]->copy(uFine[n]);
                   
                   if(n >= k) {
-                    CLOG(INFO, "Parareal") << "Calculating delta";
                     
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
@@ -189,6 +214,7 @@ namespace pfasst
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
                   }
+                  if(converged[n]) done[n] = true;
                 }
                 else {
                   u[n]->copy(coarseState);
@@ -196,12 +222,11 @@ namespace pfasst
                 uCoarse[n]->copy(coarseState);
                 uFine[n]->copy(fineState);
                 
-                err->copy(uExact[n]);
-                err->saxpy(-1.0, u[n]);
-                CLOG(INFO, "Parareal") << "Error: " << err->norm0();
-                errors.insert(vtype(ktype(n, k-1), err->norm0()));
+                echo_error(n,k);
               } // loop over time slices
             } // loop over parareal iterations
+           
+            CLOG(INFO, "Parareal")  << "Time Measurement: " << double(clock() - timeMeasure)/CLOCKS_PER_SEC;
           } // function run_parareal
       }; // class Parareal
     } // namespace parareal
@@ -214,17 +239,25 @@ int main(int argc, char** argv)
   pfasst::init(argc, argv,
                pfasst::examples::parareal::Parareal<>::init_opts,
                pfasst::examples::parareal::Parareal<>::init_logs);
-  const size_t  nsteps = 5;
+  
   const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
+  const size_t  nsteps = pfasst::config::get_value<size_t>("num_steps", 5);
   const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", 5);
   const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
-  const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 5);
-  const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 9);
+  const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 10);
+  const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 5);
   const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
   const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
+  auto const quad_type = \
+    pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
+  
+  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
+  const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
   
   pfasst::examples::parareal::Parareal<> parareal;
-  parareal.run_parareal(nsteps, npariters, nfineiters, ncrseiters, dt, nnodes, ndofs_fine, ndofs_coarse);
+  parareal.run_parareal(nsteps, npariters, nfineiters, ncrseiters, dt, nnodes, quad_type, 
+                        ndofs_fine, ndofs_coarse, abs_res_tol, rel_res_tol);
+  
   fftw_cleanup();
 }
 #endif

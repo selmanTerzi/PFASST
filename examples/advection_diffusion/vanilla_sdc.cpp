@@ -35,8 +35,10 @@ namespace pfasst
       {
         SDC<> sdc;
 
+        auto const dt = config::get_value<double>("dt", 0.01);
         auto const nnodes = config::get_value<size_t>("num_nodes", 3);
         auto const ndofs  = config::get_value<size_t>("spatial_dofs", 64);
+        auto const tend = config::get_value<double>("tend", 0.04);
         auto const quad_type = \
           config::get_value<quadrature::QuadratureType>("nodes_type", quadrature::QuadratureType::GaussLegendre);
 
@@ -49,7 +51,7 @@ namespace pfasst
         sweeper->set_residual_tolerances(abs_residual_tol, rel_residual_tol);
 
         sdc.add_level(sweeper);
-        sdc.set_duration(0.0, 4*0.01, 0.01, 4);
+        sdc.set_duration(0.0, tend, dt, 4);
         sdc.set_options();
         sdc.setup();
 

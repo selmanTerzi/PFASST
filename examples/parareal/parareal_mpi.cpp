@@ -116,7 +116,7 @@ namespace pfasst
             this->ncrseiters = ncrseiters;
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol);
-            coarse = getSDC(nnodes, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
+            coarse = getSDC((nnodes + 1) / 2, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
             
             err = factory->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
@@ -209,7 +209,6 @@ namespace pfasst
             pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "Number of Fine Sweep iterations");
             pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "Number of Coarse Sweep iterations");
             pfasst::config::options::add_option<size_t>("Parareal", "ndt_per_proc", "Number of time slices per process");
-            pfasst::config::options::add_option<time>("Parareal", "t_end", "End time");
           }
           
           static void init_logs()
@@ -262,7 +261,7 @@ namespace pfasst
                   if(n_global * dt > t_end) break; // break if t_end is reached
                   if(done[n] || k > n_global + 1) continue;
                   
-                  CLOG(INFO, "Parareal") << " k: " << k << " n: " << n_global << " j: " << j;
+                  CLOG(INFO, "Parareal") << "k: " << k << " n: " << n_global << " j: " << j;
                   
                   if(n_local >= k) {
                     if(commRank == 0 || comm->status->previous_is_iterating()) {
@@ -328,6 +327,41 @@ namespace pfasst
   } // namespace examples
 } // namespace pfasst
 
+
+void run_example()
+{
+  const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
+  const double  t_end     = pfasst::config::get_value<double>("tend", 1.0);
+  
+  // dt must be a divisor of t_end
+  if(t_end - (int)(t_end/dt)*dt != 0) {
+    MPI_Finalize();
+    CLOG(INFO, "Parareal") << "Input-error: dt must be a divisor of t_end";
+    exit(-1);
+  }
+    
+  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", 5);
+  const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
+  const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 10);
+  const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 5);
+  const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
+  const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
+  const size_t  ndt_per_proc  = pfasst::config::get_value<size_t>("ndt_per_proc", 1);
+  auto const quad_type = \
+    pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
+  
+  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
+  const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
+    
+  pfasst::mpi::MPICommunicator comm(MPI_COMM_WORLD);
+  pfasst::examples::parareal::Parareal<> parareal;
+  parareal.set_comm(&comm);
+  parareal.run_parareal(ndt_per_proc, npariters, nfineiters, ncrseiters, 
+                        dt, t_end, nnodes, quad_type, ndofs_fine, ndofs_coarse,
+                        abs_res_tol, rel_res_tol);
+}
+
+
 #ifndef PFASST_UNIT_TESTING
 int main(int argc, char** argv)
 {
@@ -337,36 +371,7 @@ int main(int argc, char** argv)
                pfasst::examples::parareal::Parareal<>::init_opts,
                pfasst::examples::parareal::Parareal<>::init_logs);
   
-  const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
-  const double  t_end     = pfasst::config::get_value<double>("t_end", 1.0);
-  
-  // dt must be a divisor of t_end
-  if(t_end - (int)(t_end/dt)*dt != 0) {
-    MPI_Finalize();
-    cout << t_end - (int)(t_end/dt)*dt << endl;
-    cout << "dt must be a divisor of t_end" << endl;
-    exit(-1);
-  }
-    
-  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", 5);
-  const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
-  const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 10);
-  const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 3);
-  const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
-  const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
-  const size_t  ndt_per_proc  = pfasst::config::get_value<size_t>("ndt_per_proc", 1);
-  auto const quad_type = \
-    pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
-  
-  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 0.0);
-  const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
-    
-  pfasst::mpi::MPICommunicator comm(MPI_COMM_WORLD);
-  pfasst::examples::parareal::Parareal<> parareal;
-  parareal.set_comm(&comm);
-  parareal.run_parareal(ndt_per_proc, npariters, nfineiters, ncrseiters, 
-                        dt, t_end, nnodes, quad_type, ndofs_fine, ndofs_coarse,
-                        abs_res_tol, rel_res_tol);
+  run_example();
   
   fftw_cleanup();
   MPI_Finalize();
