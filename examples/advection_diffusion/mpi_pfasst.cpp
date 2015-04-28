@@ -85,7 +85,11 @@ namespace pfasst
         pf.set_nsweeps({2, 1});
         pf.get_finest<AdvectionDiffusionSweeper<>>()->set_residual_tolerances(abs_res_tol, rel_res_tol);
         pf.set_options();
+        
+        double timeMeasure = MPI_Wtime();
         pf.run();
+        timeMeasure = MPI_Wtime() - timeMeasure;
+        CLOG(INFO, "Advec") << "time Measurement: " << timeMeasure;
 
         auto fine = pf.get_finest<AdvectionDiffusionSweeper<>>();
         return fine->get_errors();

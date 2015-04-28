@@ -52,16 +52,14 @@ namespace pfasst
           shared_ptr<Encapsulation<double>> err;
           error_map errors;
           
-          shared_ptr<Encapsulation<double>> startState; // start_state for current time-slice
-          vector<bool> converged;
-          vector<bool> done;
-          
           double dt; // time step
           size_t nfineiters; // number of sdc iterations for fine propagator
           size_t ncrseiters; // number of sdc iterations for coarse propagator
           
-          size_t n_global; // global number of the current time slice
           size_t numTiters; // number of parareal repetitions
+          size_t ndt_per_proc;
+          
+          double timeMeasure;
           
           shared_ptr<SDC<time>> getSDC(const size_t nnodes, 
                                        const pfasst::quadrature::QuadratureType quad_type, 
@@ -89,17 +87,21 @@ namespace pfasst
             return sdc;
           }
           
-          void init(const size_t nsteps, const double t_end, 
+          void init(const size_t ndt_per_proc, const double t_end, 
                     const double dt, const size_t nnodes,
                     const pfasst::quadrature::QuadratureType quad_type,
                     const size_t ndofs_fine, const size_t ndofs_coarse,
                     const size_t nfineiters, const size_t ncrseiters,
                     const double abs_res_tol, const double rel_res_tol)
           {
+            this->ndt_per_proc = ndt_per_proc;
+            this->dt = dt;
+            this->nfineiters = nfineiters;
+            this->ncrseiters = ncrseiters;
             
             size_t numTSlices = t_end/dt;
-            size_t numBlocks = numTSlices/nsteps;
-            if(numTSlices % nsteps != 0) numBlocks++;
+            size_t numBlocks = numTSlices/ndt_per_proc;
+            if(numTSlices % ndt_per_proc != 0) numBlocks++;
             numTiters = numBlocks/commSize;
             if(numBlocks % commSize != 0) numTiters++;
             
@@ -110,10 +112,6 @@ namespace pfasst
             }
             
             factory = make_shared<MPIVectorFactory<double>>(ndofs_fine);
-            auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
-            this->dt = dt;
-            this->nfineiters = nfineiters;
-            this->ncrseiters = ncrseiters;
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol);
             coarse = getSDC((nnodes + 1) / 2, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
@@ -126,19 +124,17 @@ namespace pfasst
             uCoarse.clear();
             uExact.clear();
             
-            for(size_t i = 0 ; i < nsteps; i++) {
+            for(size_t i = 0 ; i < ndt_per_proc; i++) {
               u.push_back(factory->create(solution));
               uFine.push_back(factory->create(solution));
               uCoarse.push_back(factory->create(solution));
-              converged.push_back(false);
-              done.push_back(false);
             }
             
+            auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
             for(size_t i = 0; i < numTiters; i++) {
-              for(size_t j = 0; j < nsteps; j++) {
-                cout << i << " " << j << endl;
+              for(size_t j = 0; j < ndt_per_proc; j++) {
                 uExact.push_back(factory->create(solution));
-                sweeper->exact(uExact[i*nsteps+j], ((i*commSize+commRank)*nsteps + j + 1)*dt);
+                sweeper->exact(uExact[i*ndt_per_proc+j], ((i*commSize+commRank)*ndt_per_proc + j + 1)*dt);
               }
             }
           }
@@ -164,7 +160,7 @@ namespace pfasst
             }
           }
           
-          bool do_fine(shared_ptr<Encapsulation<>> start_state,
+          void do_fine(shared_ptr<Encapsulation<>> start_state,
                        shared_ptr<Encapsulation<>> end_state,
                        const double startTime) 
           {
@@ -174,26 +170,48 @@ namespace pfasst
             if(start_state) fineSweeper.get_start_state()->copy(start_state);
                 
             CLOG(INFO, "Parareal") << "Fine-Sweep";
+            
             fine->run();
             
             end_state->copy(fineSweeper.get_end_state());
-            return fineSweeper.converged();
           }
           
-          void get_state(const size_t n, const size_t k, const size_t j)
+          shared_ptr<Encapsulation<double>> recvState(const size_t k, const size_t j, bool* prec_done)
           {
-            if((commRank > 0 || n > 0 || j > 0) && !startState) startState = factory->create(solution); 
+            CLOG(INFO, "Parareal") << "Recv tag: " << tag(k, j, commRank);
+            shared_ptr<Encapsulation<double>> state = factory->create(solution);
+            CLOG(INFO, "Parareal") << "passedTime-Recv mpi_vector before: " << MPI_Wtime() - timeMeasure;
+            state->recv(comm, tag(k, j, commRank), true);
+            CLOG(INFO, "Parareal") << "passedTime-Recv mpi_vector after: " << MPI_Wtime() - timeMeasure;
             
-            if(n > 0) {
-              startState->copy(u[n-1]);
+            if(commRank > 0)
+            {
+              comm->status->recv();
+              *prec_done = comm->status->get_converged(commRank - 1);
             }
-            else if(j > 0 || commRank > 0) {
-              startState->recv(comm, k * 1000 + n_global, true);
-            }
+            
+            return state;
           }
           
-          void echo_error(size_t n, size_t nsteps, size_t k, size_t j) {
-            err->copy(uExact[j * nsteps + n]);
+          int tag(const size_t k, const size_t j, int commRank) 
+          {
+            return k * 1000 + (commSize * j + commRank) * ndt_per_proc + 10;
+          }
+          
+          size_t get_n_local(const size_t n) 
+          {
+            return commRank * ndt_per_proc + n;
+          }
+          
+          size_t get_n_global(const size_t n, const size_t j) 
+          {
+            return commSize * ndt_per_proc * j + get_n_local(n);
+          }
+          
+          void echo_error(const size_t n, const size_t k, const size_t j) 
+          {
+            size_t n_global = get_n_global(n, j);
+            err->copy(uExact[j * ndt_per_proc + n]);
             err->saxpy(-1.0, u[n]);
             errors.insert(vtype(ktype(n_global, k-1), err->norm0()));
             CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
@@ -224,98 +242,122 @@ namespace pfasst
             commSize = comm->size();
           }
           
-          void run_parareal(const size_t nsteps, const size_t niters,
+          void run_parareal(const size_t ndt_per_proc, const size_t npariters,
                             const size_t nfineiters, const size_t ncrseiters,
                             const double dt, const double t_end, const size_t nnodes,
                             const pfasst::quadrature::QuadratureType quad_type,
                             const size_t ndofs_fine, const size_t ndofs_coarse,
                             const double abs_res_tol, const double rel_res_tol)
           {
-            init(nsteps, t_end, dt, nnodes, quad_type, 
+            init(ndt_per_proc, t_end, dt, nnodes, quad_type, 
                  ndofs_fine, ndofs_coarse, nfineiters, 
                  ncrseiters, abs_res_tol, rel_res_tol);
             
             if(!comm || commSize == 1) {
-              cout << "Number of processors must be greater than 1";
+              CLOG(ERROR, "Parareal") << "Number of processors must be greater than 1";
               MPI_Finalize();
               exit(-1);
             }
             
             shared_ptr<Encapsulation<double>> coarseState = factory->create(solution);
-            shared_ptr<Encapsulation<double>> fineState = factory->create(solution);
+            shared_ptr<Encapsulation<double>> diff = factory->create(solution);
+            shared_ptr<Encapsulation<double>> startState;
             shared_ptr<Encapsulation<double>> delta = factory->create(solution);
             
-            double timeMeasure = MPI_Wtime();
+            double res;
             
-            for(size_t j = 0; j < numTiters; j++) {
+            MPI_Barrier(MPI_COMM_WORLD);
+            timeMeasure = MPI_Wtime();
+            
+            bool prec_done = false;
+            bool done = false;
+            
+            size_t nstart = 0;
+            
+            for(size_t j = 0; j < numTiters; j++) { // loop over time blocks
               
-              for(size_t k = 0; k < niters; k++) {
+              for(size_t k = 0; k < npariters && !done; k++) { // loop over parareal iterations
                 
-                if(done[nsteps - 1]) break;
+                if(prec_done) nstart++;
+                if(nstart > ndt_per_proc || get_n_global(0, j)*dt >= t_end) break;
                 
-                for(size_t n = 0; n < nsteps; n++) {
-                  
-                  size_t n_local = commRank * nsteps + n;
-                  n_global = j * commSize * nsteps + n_local;
-                  
-                  if(n_global * dt > t_end) break; // break if t_end is reached
-                  if(done[n] || k > n_global + 1) continue;
-                  
-                  CLOG(INFO, "Parareal") << "k: " << k << " n: " << n_global << " j: " << j;
-                  
-                  if(n_local >= k) {
-                    if(commRank == 0 || comm->status->previous_is_iterating()) {
-                      get_state(n, k, j);
-                    }
-                    do_coarse(startState, coarseState, n_global*dt);
-                    if(!converged[n] && k < niters - 1) converged[n] = do_fine(startState, fineState, n_global*dt);
+                if(k > 0) {
+                  for(size_t n = nstart; n < ndt_per_proc; n++) {
+                    
+                    if(get_n_local(n - nstart) < k-1) continue;
+                    
+                    do_fine(n > 0 ? u[n-1] : startState, uFine[n], get_n_global(n, j)*dt);
                   }
+                }
+                
+                if(get_n_local(0) >= k && ((commRank > 0 && !prec_done) || (j > 0 && k == 0))) {
+                  startState = recvState(k,j, &prec_done);
+                }
+                
+                if(k > 0) {
+                  diff->copy(u[ndt_per_proc - 1]); // calculate residium for break condition
+                }
+                  
+                for(size_t n = nstart; n < ndt_per_proc; n++) {
+                  
+                  if(k > 0 && get_n_local(n - nstart) < k-1) continue;
+                  
+                  if(get_n_local(n - nstart) >= k) {
                     
-                  if(k > 0) {
-                    u[n]->copy(uFine[n]);
+                    do_coarse(n > 0 ? u[n-1] : startState, coarseState, get_n_global(n, j)*dt);
                     
-                    if(n >= k) {
+                    if(k == 0) {
+                      u[n]->copy(coarseState);
+                    }
+                    else {
+                      u[n]->copy(uFine[n]);
                       
                       delta->copy(coarseState);
                       delta->saxpy(-1.0, uCoarse[n]);
                       
-                      CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0() << " k: " << k << " n: " << n_global;
-                      
                       // apply delta correction
                       u[n]->saxpy(1.0, delta);
+                      
+                      CLOG(INFO, "Parareal") << "Delta-Norm: " << delta->norm0();
                     }
-                    
-                    if(converged[n]) {
-                      done[n] = true;
-                      if(n == nsteps-1) comm->status->set_converged(true);
-                    }
+                    uCoarse[n]->copy(coarseState);  
                   }
                   else {
-                    u[n]->copy(coarseState);
+                    u[n]->copy(uFine[n]);
                   }
-                  
-                  if(n_local >= k) {
-                    uCoarse[n]->copy(coarseState);
-                    uFine[n]->copy(fineState);
-                  }
-                  
-                  echo_error(n, nsteps, k, j);
-                } // loop over time slices
+                  echo_error(n, k, j);
+                }
                 
-                if(commRank < commSize - 1) {
-                  u[nsteps-1]->send(comm, k * 1000 + n_global+1, false);
+                if(k > 0) {
+                  // calc the residium
+                  diff->saxpy(-1.0, u[ndt_per_proc - 1]);
+                  res = diff->norm0();
+                  done = res < abs_res_tol;
+                  
+                  CLOG(INFO, "Parareal") << "Residium: " << res;
+                  CLOG(INFO, "Parareal") << "Done: " << done;
+                }
+                
+                if(commRank < commSize - 1 && (get_n_global(ndt_per_proc - 1, j)+1)*dt < t_end) {
+                  CLOG(INFO, "Parareal") << "Send tag: " << tag(k, j, commRank+1);
+                  u[ndt_per_proc-1]->send(comm, tag(k, j, commRank+1), false);
+                  
+                  done = done || get_n_local(ndt_per_proc - 1 - nstart) < k;
+                  comm->status->set_converged(done);
+                  comm->status->send();
+                  CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
                 }
               } // loop over parareal iterations
               
               comm->status->clear();
+              prec_done = false;
+              done = false;
+              nstart = 0;
               
-              if(j < numTiters - 1) {
-                for(size_t i = 0; i < nsteps; i++) {
-                  converged[i] = done[i] = false;
-                }
-                if(commRank == commSize - 1) {
-                  u[nsteps-1]->send(comm, n_global+1, false); // Send to proc with rank 0
-                }    
+              if(j < numTiters - 1 && commRank == commSize - 1) {
+                CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
+                u[ndt_per_proc-1]->send(comm, tag(0, j+1, 0), false); // Send to proc with rank 0
+                CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
               }
             } // loop over ring-blocking iterations
             

@@ -98,6 +98,8 @@ namespace pfasst
             uFine.clear();
             uCoarse.clear();
             uExact.clear();
+            converged.clear();
+            done.clear();
             
             for(size_t i = 0 ; i < nsteps; i++) {
               u.push_back(factory->create(solution));
@@ -191,7 +193,11 @@ namespace pfasst
             clock_t timeMeasure = clock();
             
             for(size_t k = 0; k < niters; k++) {
+              
+              if(done[nsteps - 1]) break;
+              
               for(size_t n = 0; n < nsteps; n++) {
+                
                 if(done[n] || k > n + 1) continue;
                 
                 CLOG(INFO, "Parareal") << "k: " << k << " n: " << n;
@@ -205,14 +211,13 @@ namespace pfasst
                   u[n]->copy(uFine[n]);
                   
                   if(n >= k) {
-                    
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
                     
-                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();
-                    
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
+                    
+                    CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();
                   }
                   if(converged[n]) done[n] = true;
                 }

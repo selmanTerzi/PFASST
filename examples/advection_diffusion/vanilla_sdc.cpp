@@ -40,7 +40,7 @@ namespace pfasst
         auto const ndofs  = config::get_value<size_t>("spatial_dofs", 64);
         auto const tend = config::get_value<double>("tend", 0.04);
         auto const quad_type = \
-          config::get_value<quadrature::QuadratureType>("nodes_type", quadrature::QuadratureType::GaussLegendre);
+          config::get_value<quadrature::QuadratureType>("nodes_type", quadrature::QuadratureType::GaussLobatto);
 
         auto quad    = quadrature::quadrature_factory(nnodes, quad_type);
         auto factory = make_shared<encap::VectorFactory<double>>(ndofs);

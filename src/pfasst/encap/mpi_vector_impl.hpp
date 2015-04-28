@@ -37,7 +37,8 @@ namespace pfasst
       if (blocking) {
         MPI_Status stat;
         err = MPI_Recv(this->data(), sizeof(scalar) * this->size(), MPI_CHAR,
-                       mpi.rank() == 0 ? mpi.size() - 1 : mpi.rank() - 1, tag, mpi.comm, &stat);
+                       (mpi.rank() + mpi.size() - 1) % mpi.size(), tag, mpi.comm, &stat);
+        LOG(DEBUG) << "mpi recv tag " << tag << " commRank " << (mpi.rank() + mpi.size() - 1) % mpi.size();
       } else {
         MPI_Status stat;
         err = MPI_Wait(&recv_request, &stat);
@@ -64,9 +65,10 @@ namespace pfasst
         if (err != MPI_SUCCESS) {
           throw MPIError();
         }
-
+        
         err = MPI_Isend(this->data(), sizeof(scalar) * this->size(), MPI_CHAR,
                         (mpi.rank() + 1) % mpi.size(), tag, mpi.comm, &send_request);
+        LOG(DEBUG) << "mpi send tag " << tag<< " commRank " << (mpi.rank() + 1) % mpi.size();
       }
 
       if (err != MPI_SUCCESS) {
