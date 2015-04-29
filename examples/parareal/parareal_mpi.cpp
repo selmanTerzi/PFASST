@@ -45,9 +45,9 @@ namespace pfasst
           
           shared_ptr<EncapFactory<>> factory; // fine level factory
           
-          vector<shared_ptr<Encapsulation<double>>> u; // vector with current numerical solution at fine level
-          vector<shared_ptr<Encapsulation<double>>> uCoarse; // vector with interpolated coarse-Sweep results
-          vector<shared_ptr<Encapsulation<double>>> uFine; // vector with fine-Sweep results
+          shared_ptr<Encapsulation<double>> u; // vector with current numerical solution at fine level
+          shared_ptr<Encapsulation<double>> uCoarse; // vector with interpolated coarse-Sweep results
+          shared_ptr<Encapsulation<double>> uFine; // vector with fine-Sweep results
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
           shared_ptr<Encapsulation<double>> err;
           error_map errors;
@@ -57,7 +57,6 @@ namespace pfasst
           size_t ncrseiters; // number of sdc iterations for coarse propagator
           
           size_t numTiters; // number of parareal repetitions
-          size_t ndt_per_proc;
           
           double timeMeasure;
           
@@ -87,55 +86,43 @@ namespace pfasst
             return sdc;
           }
           
-          void init(const size_t ndt_per_proc, const double t_end, 
-                    const double dt, const size_t nnodes,
+          void init(const double t_end, const double dt, 
+                    const size_t nnodes, const size_t nnodesCoarse,
                     const pfasst::quadrature::QuadratureType quad_type,
                     const size_t ndofs_fine, const size_t ndofs_coarse,
                     const size_t nfineiters, const size_t ncrseiters,
                     const double abs_res_tol, const double rel_res_tol)
           {
-            this->ndt_per_proc = ndt_per_proc;
             this->dt = dt;
             this->nfineiters = nfineiters;
             this->ncrseiters = ncrseiters;
             
             size_t numTSlices = t_end/dt;
-            size_t numBlocks = numTSlices/ndt_per_proc;
-            if(numTSlices % ndt_per_proc != 0) numBlocks++;
-            numTiters = numBlocks/commSize;
-            if(numBlocks % commSize != 0) numTiters++;
+            numTiters = numTSlices/commSize;
+            if(numTSlices % commSize != 0) numTiters++;
             
             if(commRank == 0) {
               CLOG(INFO, "Parareal") << "numTSlices: " << numTSlices;
-              CLOG(INFO, "Parareal") << "numBlocks: " << numBlocks;
               CLOG(INFO, "Parareal") << "numTiters: " << numTiters;
             }
             
             factory = make_shared<MPIVectorFactory<double>>(ndofs_fine);
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol);
-            coarse = getSDC((nnodes + 1) / 2, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
+            coarse = getSDC(nnodesCoarse, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);
             
             err = factory->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
             
-            u.clear();
-            uFine.clear();
-            uCoarse.clear();
+            u = factory->create(solution);
+            uFine = factory->create(solution);
+            uCoarse = factory->create(solution);
+            
             uExact.clear();
-            
-            for(size_t i = 0 ; i < ndt_per_proc; i++) {
-              u.push_back(factory->create(solution));
-              uFine.push_back(factory->create(solution));
-              uCoarse.push_back(factory->create(solution));
-            }
-            
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
             for(size_t i = 0; i < numTiters; i++) {
-              for(size_t j = 0; j < ndt_per_proc; j++) {
-                uExact.push_back(factory->create(solution));
-                sweeper->exact(uExact[i*ndt_per_proc+j], ((i*commSize+commRank)*ndt_per_proc + j + 1)*dt);
-              }
+              uExact.push_back(factory->create(solution));
+              sweeper->exact(uExact[i], (i*commSize + commRank + 1)*dt);
             }
           }
           
@@ -195,24 +182,14 @@ namespace pfasst
           
           int tag(const size_t k, const size_t j, int commRank) 
           {
-            return k * 1000 + (commSize * j + commRank) * ndt_per_proc + 10;
+            return k * 10000 + commSize * j + commRank;
           }
           
-          size_t get_n_local(const size_t n) 
+          void echo_error(const size_t k, const size_t j)
           {
-            return commRank * ndt_per_proc + n;
-          }
-          
-          size_t get_n_global(const size_t n, const size_t j) 
-          {
-            return commSize * ndt_per_proc * j + get_n_local(n);
-          }
-          
-          void echo_error(const size_t n, const size_t k, const size_t j) 
-          {
-            size_t n_global = get_n_global(n, j);
-            err->copy(uExact[j * ndt_per_proc + n]);
-            err->saxpy(-1.0, u[n]);
+            size_t n_global = commSize * j + commRank;
+            err->copy(uExact[j]);
+            err->saxpy(-1.0, u);
             errors.insert(vtype(ktype(n_global, k-1), err->norm0()));
             CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
           }
@@ -224,9 +201,9 @@ namespace pfasst
             pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts();
             pfasst::config::options::add_option<size_t>("Parareal", "num_par_iter", "Number of Parareal iterations");
             pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
+            pfasst::config::options::add_option<size_t>("Parareal", "num_nodes_coarse", "Number of collocation nodes for coarse sweeper");
             pfasst::config::options::add_option<size_t>("Parareal", "num_fine_iter", "Number of Fine Sweep iterations");
             pfasst::config::options::add_option<size_t>("Parareal", "num_crse_iter", "Number of Coarse Sweep iterations");
-            pfasst::config::options::add_option<size_t>("Parareal", "ndt_per_proc", "Number of time slices per process");
           }
           
           static void init_logs()
@@ -242,15 +219,15 @@ namespace pfasst
             commSize = comm->size();
           }
           
-          void run_parareal(const size_t ndt_per_proc, const size_t npariters,
-                            const size_t nfineiters, const size_t ncrseiters,
-                            const double dt, const double t_end, const size_t nnodes,
+          void run_parareal(const size_t npariters, const size_t nfineiters, 
+                            const size_t ncrseiters, const double dt, const double t_end, 
+                            const size_t nnodes, const size_t nnodesCoarse,
                             const pfasst::quadrature::QuadratureType quad_type,
                             const size_t ndofs_fine, const size_t ndofs_coarse,
                             const double abs_res_tol, const double rel_res_tol)
           {
-            init(ndt_per_proc, t_end, dt, nnodes, quad_type, 
-                 ndofs_fine, ndofs_coarse, nfineiters, 
+            init(t_end, dt, nnodes, nnodesCoarse,
+                 quad_type, ndofs_fine, ndofs_coarse, nfineiters, 
                  ncrseiters, abs_res_tol, rel_res_tol);
             
             if(!comm || commSize == 1) {
@@ -272,65 +249,52 @@ namespace pfasst
             bool prec_done = false;
             bool done = false;
             
-            size_t nstart = 0;
-            
             for(size_t j = 0; j < numTiters; j++) { // loop over time blocks
+              
+              size_t nglobal = commSize * j + commRank;
+              
+              bool initial = commRank == 0 && j == 0;
               
               for(size_t k = 0; k < npariters && !done; k++) { // loop over parareal iterations
                 
-                if(prec_done) nstart++;
-                if(nstart > ndt_per_proc || get_n_global(0, j)*dt >= t_end) break;
+                if((k > 0 && commRank < k-1) || nglobal*dt > t_end) break;
                 
                 if(k > 0) {
-                  for(size_t n = nstart; n < ndt_per_proc; n++) {
-                    
-                    if(get_n_local(n - nstart) < k-1) continue;
-                    
-                    do_fine(n > 0 ? u[n-1] : startState, uFine[n], get_n_global(n, j)*dt);
-                  }
+                  do_fine(startState, uFine, nglobal*dt); 
+                  diff->copy(u); // calculate residium for break condition
                 }
                 
-                if(get_n_local(0) >= k && ((commRank > 0 && !prec_done) || (j > 0 && k == 0))) {
-                  startState = recvState(k,j, &prec_done);
-                }
-                
-                if(k > 0) {
-                  diff->copy(u[ndt_per_proc - 1]); // calculate residium for break condition
-                }
+                if(commRank >= k) {
                   
-                for(size_t n = nstart; n < ndt_per_proc; n++) {
+                  if(!initial && !prec_done) startState = recvState(k,j, &prec_done);
+                  else if(!initial) done = true;
                   
-                  if(k > 0 && get_n_local(n - nstart) < k-1) continue;
+                  do_coarse(startState, coarseState, nglobal*dt);
                   
-                  if(get_n_local(n - nstart) >= k) {
-                    
-                    do_coarse(n > 0 ? u[n-1] : startState, coarseState, get_n_global(n, j)*dt);
-                    
-                    if(k == 0) {
-                      u[n]->copy(coarseState);
-                    }
-                    else {
-                      u[n]->copy(uFine[n]);
-                      
-                      delta->copy(coarseState);
-                      delta->saxpy(-1.0, uCoarse[n]);
-                      
-                      // apply delta correction
-                      u[n]->saxpy(1.0, delta);
-                      
-                      CLOG(INFO, "Parareal") << "Delta-Norm: " << delta->norm0();
-                    }
-                    uCoarse[n]->copy(coarseState);  
+                  if(k == 0) {
+                    u->copy(coarseState);
                   }
                   else {
-                    u[n]->copy(uFine[n]);
+                    u->copy(uFine);
+                    
+                    delta->copy(coarseState);
+                    delta->saxpy(-1.0, uCoarse);
+                    
+                    // apply delta correction
+                    u->saxpy(1.0, delta);
+                    
+                    CLOG(INFO, "Parareal") << "Delta-Norm: " << delta->norm0();
                   }
-                  echo_error(n, k, j);
+                  uCoarse->copy(coarseState);  
                 }
+                else {
+                  u->copy(uFine);
+                }
+                echo_error(k, j);
                 
-                if(k > 0) {
+                if(k > 0 && !done) {
                   // calc the residium
-                  diff->saxpy(-1.0, u[ndt_per_proc - 1]);
+                  diff->saxpy(-1.0, u);
                   res = diff->norm0();
                   done = res < abs_res_tol;
                   
@@ -338,11 +302,11 @@ namespace pfasst
                   CLOG(INFO, "Parareal") << "Done: " << done;
                 }
                 
-                if(commRank < commSize - 1 && (get_n_global(ndt_per_proc - 1, j)+1)*dt < t_end) {
+                if(commRank < commSize - 1 && (nglobal+1)*dt <= t_end) {
                   CLOG(INFO, "Parareal") << "Send tag: " << tag(k, j, commRank+1);
-                  u[ndt_per_proc-1]->send(comm, tag(k, j, commRank+1), false);
+                  u->send(comm, tag(k, j, commRank+1), false);
                   
-                  done = done || get_n_local(ndt_per_proc - 1 - nstart) < k;
+                  done = done || commRank < k;
                   comm->status->set_converged(done);
                   comm->status->send();
                   CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
@@ -351,16 +315,15 @@ namespace pfasst
               
               comm->status->clear();
               prec_done = false;
-              done = false;
-              nstart = 0;
+              done = false; 
               
               if(j < numTiters - 1 && commRank == commSize - 1) {
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
-                u[ndt_per_proc-1]->send(comm, tag(0, j+1, 0), false); // Send to proc with rank 0
+                u->send(comm, tag(0, j+1, 0), false); // Send to proc with rank 0
                 CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
               }
             } // loop over ring-blocking iterations
-            
+              
             timeMeasure = MPI_Wtime() - timeMeasure;
             CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
           } // function run_parareal
@@ -381,25 +344,27 @@ void run_example()
     CLOG(INFO, "Parareal") << "Input-error: dt must be a divisor of t_end";
     exit(-1);
   }
+  
+  pfasst::mpi::MPICommunicator comm(MPI_COMM_WORLD);
+  pfasst::examples::parareal::Parareal<> parareal;
+  parareal.set_comm(&comm);
     
-  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", 5);
+  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", comm.size());
   const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
   const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 10);
   const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 5);
+  const size_t  nnodesCoarse = pfasst::config::get_value<size_t>("num_nodes_coarse", 5);
   const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
   const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
-  const size_t  ndt_per_proc  = pfasst::config::get_value<size_t>("ndt_per_proc", 1);
   auto const quad_type = \
     pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
   
   const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
-    
-  pfasst::mpi::MPICommunicator comm(MPI_COMM_WORLD);
-  pfasst::examples::parareal::Parareal<> parareal;
-  parareal.set_comm(&comm);
-  parareal.run_parareal(ndt_per_proc, npariters, nfineiters, ncrseiters, 
-                        dt, t_end, nnodes, quad_type, ndofs_fine, ndofs_coarse,
+  
+  parareal.run_parareal(npariters, nfineiters, ncrseiters, dt, 
+                        t_end, nnodes, nnodesCoarse,
+                        quad_type, ndofs_fine, ndofs_coarse,
                         abs_res_tol, rel_res_tol);
 }
 

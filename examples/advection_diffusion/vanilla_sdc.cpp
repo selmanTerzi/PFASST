@@ -41,7 +41,9 @@ namespace pfasst
         auto const tend = config::get_value<double>("tend", 0.04);
         auto const quad_type = \
           config::get_value<quadrature::QuadratureType>("nodes_type", quadrature::QuadratureType::GaussLobatto);
-
+        
+        const size_t niters = pfasst::config::get_value<double>("niters", 10);
+        
         auto quad    = quadrature::quadrature_factory(nnodes, quad_type);
         auto factory = make_shared<encap::VectorFactory<double>>(ndofs);
         auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
@@ -51,15 +53,17 @@ namespace pfasst
         sweeper->set_residual_tolerances(abs_residual_tol, rel_residual_tol);
 
         sdc.add_level(sweeper);
-        sdc.set_duration(0.0, tend, dt, 4);
+        sdc.set_duration(0.0, tend, dt, niters);
         sdc.set_options();
         sdc.setup();
 
         auto q0 = sweeper->get_start_state();
         sweeper->exact(q0, 0.0);
-
+        
+        clock_t timeMeasure = clock();
         sdc.run();
-
+        CLOG(INFO, "Advec")  << "Time Measurement: " << double(clock() - timeMeasure)/CLOCKS_PER_SEC;
+        
         fftw_cleanup();
 
         return sweeper->get_errors();
@@ -72,9 +76,13 @@ namespace pfasst
 #ifndef PFASST_UNIT_TESTING
 int main(int argc, char** argv)
 {
+  
+  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
+  const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
+  
   pfasst::init(argc, argv,
                pfasst::examples::advection_diffusion::AdvectionDiffusionSweeper<>::init_opts,
                pfasst::examples::advection_diffusion::AdvectionDiffusionSweeper<>::init_logs);
-  pfasst::examples::advection_diffusion::run_vanilla_sdc(0.0);
+  pfasst::examples::advection_diffusion::run_vanilla_sdc(abs_res_tol, rel_res_tol);
 }
 #endif
