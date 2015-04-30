@@ -14,7 +14,7 @@ using namespace std;
 #include <pfasst/quadrature.hpp>
 #include <pfasst/encap/encap_sweeper.hpp>
 #include <pfasst/mpi_communicator.hpp>
-#include <pfasst/encap/mpi_vector.hpp>
+#include <pfasst/encap/vector.hpp>
 
 #include "advection_diffusion_sweeper.hpp"
 #include "spectral_transfer_1d.hpp"
@@ -68,7 +68,7 @@ namespace pfasst
             auto sdc = make_shared<SDC<time>>();
             
             auto quad    = quadrature::quadrature_factory(nnodes, quad_type);
-            auto factory = make_shared<MPIVectorFactory<double>>(ndofs);
+            auto factory = make_shared<VectorFactory<double>>(ndofs);
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
             
             sweeper->set_residual_tolerances(abs_res_tol, rel_res_tol);
@@ -106,7 +106,7 @@ namespace pfasst
               CLOG(INFO, "Parareal") << "numTiters: " << numTiters;
             }
             
-            factory = make_shared<MPIVectorFactory<double>>(ndofs_fine);
+            factory = make_shared<VectorFactory<double>>(ndofs_fine);
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol);
             coarse = getSDC(nnodesCoarse, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol);

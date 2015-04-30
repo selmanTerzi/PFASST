@@ -52,6 +52,21 @@ struct OUT
     static const string reset;
 };
 
+#ifdef NO_COLOR
+const string OUT::black = "";
+const string OUT::red = "";
+const string OUT::green = "";
+const string OUT::yellow = "";
+const string OUT::blue = "";
+const string OUT::magenta = "";
+const string OUT::cyan = "";
+const string OUT::white = "";
+
+const string OUT::bold = "";
+const string OUT::underline = "";
+
+const string OUT::reset = "";
+#else
 const string OUT::black = "\033[30m";
 const string OUT::red = "\033[31m";
 const string OUT::green = "\033[32m";
@@ -65,7 +80,7 @@ const string OUT::bold = "\033[1m";
 const string OUT::underline = "\033[4m";
 
 const string OUT::reset = "\033[0m";
-
+#endif
 
 // enable easy logging of STL containers
 #define ELPP_STL_LOGGING
@@ -166,7 +181,7 @@ namespace pfasst
    *   - `VLOG` - the verbose logging levels are used as follows:
    *     - 0 to 8
    *     - 9 for function enter and exit messages (cfg. @ref VLOG_FUNC_START and @ref VLOG_FUNC_END)
-   * 
+   *
    * @see [easylogging++](https://github.com/easylogging/easyloggingpp)
    */
   namespace log
@@ -213,12 +228,7 @@ namespace pfasst
       const string POSITION = "%fbase:%line";
       const string MESSAGE = "%msg";
 #ifdef WITH_MPI
-      int initialized = 0;
-      MPI_Initialized(&initialized);
-      assert((bool)initialized);
-      int rank = 0;
-      MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
+      const int rank = pfasst::config::get_rank();
       ostringstream frmter;
       frmter << std::setw(3) << rank;
       const string MPI_RANK = ", rank " + frmter.str();
@@ -290,11 +300,7 @@ namespace pfasst
         defaultConf.setGlobally(el::ConfigurationType::ToStandardOutput, "false");
       }
 #ifdef WITH_MPI
-      int initialized = 0;
-      MPI_Initialized(&initialized);
-      assert((bool)initialized);
-      int rank = 0;
-      MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+      int rank = pfasst::config::get_rank();
       defaultConf.setGlobally(el::ConfigurationType::ToFile, "true");
       defaultConf.setGlobally(el::ConfigurationType::Filename,
                               string("mpi_run_") + to_string(rank) + string(".log"));
@@ -334,7 +340,11 @@ namespace pfasst
     {
       el::Loggers::addFlag(el::LoggingFlag::LogDetailedCrashReason);
       el::Loggers::addFlag(el::LoggingFlag::DisableApplicationAbortOnFatalLog);
+#ifdef NO_COLOR
+      el::Loggers::removeFlag(el::LoggingFlag::ColoredTerminalOutput);
+#else
       el::Loggers::addFlag(el::LoggingFlag::ColoredTerminalOutput);
+#endif
       el::Loggers::addFlag(el::LoggingFlag::MultiLoggerSupport);
       el::Loggers::addFlag(el::LoggingFlag::CreateLoggerAutomatically);
     }
@@ -390,6 +400,7 @@ namespace pfasst
       set_logging_flags();
       load_default_config();
       pfasst::log::stack_position = 0;
+      CLOG(INFO, "default") << "PFASST++ version " << pfasst::VERSION;
     }
   }  // ::pfasst::log
 }  // ::pfasst

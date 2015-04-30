@@ -19,13 +19,14 @@ option(pfasst_BUILD_EXAMPLES    "Build example programs."                       
 CMAKE_DEPENDENT_OPTION(pfasst_INSTALL_EXAMPLES "Install example programs." ON
     "pfasst_BUILD_EXAMPLES" OFF)
 option(pfasst_BUILD_TESTS       "Build test suite for PFASST."                            ON )
-option(pfasst_WITH_MPI          "Build with MPI enabled."                                 OFF)
+option(pfasst_WITH_MPI          "Build with MPI enabled."                                 ON )
+option(pfasst_WITH_COLOR        "Enable colorful logging output."                         ON )
 option(pfasst_WITH_GCC_PROF     "Enable excessive debugging & profiling output with GCC." OFF)
 option(pfasst_DEFAULT_RAND_SEED "Using a hardcoded random seed"                           ON )
 
 if(${pfasst_WITH_MPI})
     find_package(MPI REQUIRED)
-    if(NOT "${CMAKE_CXX_COMPILER}" STREQUAL "${MPI_CXX_COMPILER}" OR 
+    if(NOT "${CMAKE_CXX_COMPILER}" STREQUAL "${MPI_CXX_COMPILER}" OR
        NOT "${CMAKE_C_COMPILER}" STREQUAL "${MPI_C_COMPILER}")
         message(STATUS "C++ Compiler: ${CMAKE_CXX_COMPILER}")
         message(STATUS "MPI C++ Compiler Wrapper: ${MPI_CXX_COMPILER}")
@@ -41,6 +42,10 @@ endif()
 
 if(pfasst_DEFAULT_RAND_SEED)
     set(pfasst_RANDOM_SEED "42")
+endif()
+
+if(NOT ${pfasst_WITH_COLOR})
+    add_definitions(-DNO_COLOR)
 endif()
 
 # Check for C++11 support
@@ -113,6 +118,10 @@ add_feature_info(MPI
     pfasst_WITH_MPI
     "build with MPI"
 )
+add_feature_info(COLOR
+    pfasst_WITH_COLOR
+    "colorful logging"
+)
 if(${CMAKE_CXX_COMPILER_ID} MATCHES GNU)
     add_feature_info(Profiling
         pfasst_WITH_GCC_PROF
@@ -151,20 +160,30 @@ message(STATUS "Configuring 3rd party libraries")
 #  - FFTW_LIBRARIES (if pfasst_BUILD_EXAMPLES)
 add_subdirectory(3rdparty)
 
+message(STATUS "********************************************************************************")
+message(STATUS "Configuring sources")
+update_site_config()
+
+if(NOT PYTHON_EXECUTABLE)
+    find_package(PythonInterp 2.7)
+    if(NOT PYTHONINTERP_FOUND)
+        find_package(PythonInterp 3 REQUIRED)
+    endif()
+else()
+    message(STATUS "Using specified Python executable: ${PYTHON_EXECUTABLE}")
+endif()
+add_custom_target(set_version ALL
+    COMMAND ${PYTHON_EXECUTABLE} ${pfasst_SOURCE_DIR}/tools/get_pfasst_version.py
+    WORKING_DIRECTORY ${pfasst_SOURCE_DIR}
+    COMMENT "Updating PFASST++ version number"
+    USES_TERMINAL
+)
+set(pfasst_DEPENDEND_TARGETS set_version ${pfasst_DEPENDEND_TARGETS})
+
 list(LENGTH pfasst_DEPENDEND_LIBS pfasst_NUM_DEPENDEND_LIBS)
 list(LENGTH pfasst_DEPENDEND_TARGETS pfasst_NUM_DEPENDEND_TARGETS)
 list(LENGTH pfasst_TESTS_DEPENDEND_TARGETS pfasst_TESTS_NUM_DEPENDEND_TARGETS)
 
-message(STATUS "********************************************************************************")
-message(STATUS "Configuring sources")
-set(WARNING_COMMENT "/*\n * DO NOT ALTER THIS FILE\n *\n * It will get rewritten on CMake's next run\n *\n */")
-if(pfasst_RANDOM_SEED)
-    add_definitions(-DPFASST_DEFAULT_RANDOM_SEED)
-endif()
-configure_file(
-    "${pfasst_SOURCE_DIR}/cmake/site_config.hpp.in"
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/pfasst/site_config.hpp"
-)
 add_subdirectory(include)
 add_subdirectory(src)
 
