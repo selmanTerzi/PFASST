@@ -304,7 +304,7 @@ namespace pfasst
                 
                 if(commRank < commSize - 1 && (nglobal+1)*dt <= t_end) {
                   CLOG(INFO, "Parareal") << "Send tag: " << tag(k, j, commRank+1);
-                  u->send(comm, tag(k, j, commRank+1), false);
+                  u->send(comm, tag(k, j, commRank+1), true);
                   
                   done = done || commRank < k;
                   comm->status->set_converged(done);
@@ -319,7 +319,7 @@ namespace pfasst
               
               if(j < numTiters - 1 && commRank == commSize - 1) {
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
-                u->send(comm, tag(0, j+1, 0), false); // Send to proc with rank 0
+                u->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
                 CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
               }
             } // loop over ring-blocking iterations
