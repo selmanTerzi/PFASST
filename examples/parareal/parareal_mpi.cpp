@@ -167,9 +167,7 @@ namespace pfasst
           {
             CLOG(INFO, "Parareal") << "Recv tag: " << tag(k, j, commRank);
             shared_ptr<Encapsulation<double>> state = factory->create(solution);
-            CLOG(INFO, "Parareal") << "passedTime-Recv mpi_vector before: " << MPI_Wtime() - timeMeasure;
             state->recv(comm, tag(k, j, commRank), true);
-            CLOG(INFO, "Parareal") << "passedTime-Recv mpi_vector after: " << MPI_Wtime() - timeMeasure;
             
             if(commRank > 0)
             {
@@ -309,7 +307,6 @@ namespace pfasst
                   done = done || commRank < k;
                   comm->status->set_converged(done);
                   comm->status->send();
-                  CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
                 }
               } // loop over parareal iterations
               
@@ -320,7 +317,6 @@ namespace pfasst
               if(j < numTiters - 1 && commRank == commSize - 1) {
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
                 u->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
-                CLOG(INFO, "Parareal") << "passedTime-Send: " << MPI_Wtime() - timeMeasure;
               }
             } // loop over ring-blocking iterations
               
