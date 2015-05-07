@@ -218,7 +218,7 @@ namespace pfasst
           }
           
           void run_parareal(const size_t npariters, const size_t nfineiters, 
-                            const size_t ncrseiters, const double dt, const double t_end, 
+                            const size_t ncrseiters, const double dt, const double t_end,
                             const size_t nnodes, const size_t nnodesCoarse,
                             const pfasst::quadrature::QuadratureType quad_type,
                             const size_t ndofs_fine, const size_t ndofs_coarse,
@@ -355,7 +355,7 @@ void run_example()
   auto const quad_type = \
     pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
   
-  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
+  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 0.0);
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
   
   parareal.run_parareal(npariters, nfineiters, ncrseiters, dt, 

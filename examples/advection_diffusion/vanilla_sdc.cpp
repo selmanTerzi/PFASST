@@ -42,7 +42,7 @@ namespace pfasst
         auto const quad_type = \
           config::get_value<quadrature::QuadratureType>("nodes_type", quadrature::QuadratureType::GaussLobatto);
         
-        const size_t niters = pfasst::config::get_value<double>("niters", 10);
+        const size_t niters = pfasst::config::get_value<size_t>("num_iter", 10);
         
         auto quad    = quadrature::quadrature_factory(nnodes, quad_type);
         auto factory = make_shared<encap::VectorFactory<double>>(ndofs);
@@ -77,7 +77,7 @@ namespace pfasst
 int main(int argc, char** argv)
 {
   
-  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 1e-10);
+  const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 0.0);
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
   
   pfasst::init(argc, argv,
