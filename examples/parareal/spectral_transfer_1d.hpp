@@ -33,10 +33,15 @@ namespace pfasst
 
         public:
           void interpolate(shared_ptr<Encapsulation> dst, shared_ptr<const Encapsulation> src) override
-          {
+          { 
             auto& fine = encap::as_vector<double, time>(dst);
             auto& crse = encap::as_vector<double, time>(src);
-
+            
+            if(fine.size() == crse.size()) {
+              dst->copy(src);
+              return;
+            }
+            
             auto* crse_z = this->fft.forward(crse);
             auto* fine_z = this->fft.get_workspace(fine.size())->z;
 

@@ -46,8 +46,6 @@ namespace pfasst
           shared_ptr<EncapFactory<>> factory; // fine level factory
           
           shared_ptr<Encapsulation<double>> u; // vector with current numerical solution at fine level
-          shared_ptr<Encapsulation<double>> uCoarse; // vector with interpolated coarse-Sweep results
-          shared_ptr<Encapsulation<double>> uFine; // vector with fine-Sweep results
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
           shared_ptr<Encapsulation<double>> err;
           error_map errors;
@@ -115,8 +113,6 @@ namespace pfasst
             transfer = make_shared<SpectralTransfer1D<>>();
             
             u = factory->create(solution);
-            uFine = factory->create(solution);
-            uCoarse = factory->create(solution);
             
             uExact.clear();
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
@@ -127,10 +123,10 @@ namespace pfasst
           }
           
           void do_coarse(shared_ptr<Encapsulation<>> start_state,
-                         shared_ptr<Encapsulation<>> end_state,
-                         const double startTime) 
+                         shared_ptr<Encapsulation<>> end_state) 
           {
-            coarse->set_duration(startTime, startTime+dt, dt, ncrseiters);
+            coarse->set_step(0);
+            coarse->set_iteration(0);
             EncapSweeper<time>& coarseSweeper = as_encap_sweeper<time>(coarse->get_finest());
             
             if(start_state) transfer->restrict(coarseSweeper.get_start_state(), start_state);
@@ -148,10 +144,9 @@ namespace pfasst
           }
           
           void do_fine(shared_ptr<Encapsulation<>> start_state,
-                       shared_ptr<Encapsulation<>> end_state,
-                       const double startTime) 
+                       shared_ptr<Encapsulation<>> end_state) 
           {
-            fine->set_duration(startTime, startTime+dt, dt, nfineiters);
+            fine->set_step(0);
             EncapSweeper<time>& fineSweeper = as_encap_sweeper<time>(fine->get_finest());
             
             if(start_state) fineSweeper.get_start_state()->copy(start_state);
@@ -171,7 +166,7 @@ namespace pfasst
             
             if(commRank > 0)
             {
-              comm->status->recv();
+              comm->status->recv(0);
               *prec_done = comm->status->get_converged(commRank - 1);
             }
             
@@ -235,6 +230,8 @@ namespace pfasst
             }
             
             shared_ptr<Encapsulation<double>> coarseState = factory->create(solution);
+            shared_ptr<Encapsulation<double>> coarseStateOld = factory->create(solution);
+            shared_ptr<Encapsulation<double>> fineState = factory->create(solution);
             shared_ptr<Encapsulation<double>> diff = factory->create(solution);
             shared_ptr<Encapsulation<double>> startState;
             shared_ptr<Encapsulation<double>> delta = factory->create(solution);
@@ -252,13 +249,15 @@ namespace pfasst
               size_t nglobal = commSize * j + commRank;
               
               bool initial = commRank == 0 && j == 0;
+              coarse->set_duration(nglobal*dt, nglobal*dt+dt, dt, ncrseiters);
+              fine->set_duration(nglobal*dt, nglobal*dt+dt, dt, nfineiters);
               
               for(size_t k = 0; k < npariters && !done; k++) { // loop over parareal iterations
                 
                 if((k > 0 && commRank < k-1) || nglobal*dt > t_end) break;
                 
                 if(k > 0) {
-                  do_fine(startState, uFine, nglobal*dt); 
+                  do_fine(startState, fineState); 
                   diff->copy(u); // calculate residium for break condition
                 }
                 
@@ -267,26 +266,26 @@ namespace pfasst
                   if(!initial && !prec_done) startState = recvState(k,j, &prec_done);
                   else if(!initial) done = true;
                   
-                  do_coarse(startState, coarseState, nglobal*dt);
+                  do_coarse(startState, coarseState);
                   
                   if(k == 0) {
                     u->copy(coarseState);
                   }
                   else {
-                    u->copy(uFine);
+                    u->copy(fineState);
                     
                     delta->copy(coarseState);
-                    delta->saxpy(-1.0, uCoarse);
+                    delta->saxpy(-1.0, coarseStateOld);
                     
                     // apply delta correction
                     u->saxpy(1.0, delta);
                     
                     CLOG(INFO, "Parareal") << "Delta-Norm: " << delta->norm0();
                   }
-                  uCoarse->copy(coarseState);  
+                  coarseStateOld->copy(coarseState);  
                 }
                 else {
-                  u->copy(uFine);
+                  u->copy(fineState);
                 }
                 echo_error(k, j);
                 
@@ -306,7 +305,7 @@ namespace pfasst
                   
                   done = done || commRank < k;
                   comm->status->set_converged(done);
-                  comm->status->send();
+                  comm->status->send(0);
                 }
               } // loop over parareal iterations
               
@@ -318,7 +317,7 @@ namespace pfasst
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
                 u->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
               }
-            } // loop over ring-blocking iterations
+            } // loop over time blocks
               
             timeMeasure = MPI_Wtime() - timeMeasure;
             CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
