@@ -12,6 +12,7 @@ using namespace std;
 
 #include <pfasst/encap/vector.hpp>
 #include <pfasst/encap/poly_interp.hpp>
+#include <pfasst/encap/encap_sweeper.hpp>
 
 #include "fft.hpp"
 
@@ -60,6 +61,54 @@ namespace pfasst
             }
 
             this->fft.backward(fine);
+          }
+          
+          // interpolates the difference of coarse solution and last fine solution at coarse nodes
+          // to the fine nodes
+          void interpolateDiff(shared_ptr<ISweeper<time>> dst,
+                               shared_ptr<const ISweeper<time>> src)
+          {
+            auto& fine = encap::as_encap_sweeper(dst);
+            auto& crse = encap::as_encap_sweeper(src);
+
+            if (this->tmat.rows() == 0) {
+              this->tmat = pfasst::quadrature::compute_interp<time>(fine.get_nodes(), crse.get_nodes());
+            }
+            
+            auto const crse_nodes = crse.get_nodes();
+            auto const fine_nodes = fine.get_nodes();
+            
+            size_t nfine = fine_nodes.size();
+            size_t ncrse = crse_nodes.size();
+            
+            auto crse_factory = crse.get_factory();
+            auto fine_factory = fine.get_factory();
+
+            vector<shared_ptr<Encapsulation>> diff(ncrse), fine_state(nfine);
+            shared_ptr<Encapsulation> restricted = crse_factory->create(encap::EncapType::solution);
+            
+            for (size_t m = 0; m < nfine; m++) { fine_state[m] = fine.get_state(m); }
+            
+            int trat = (int(nfine) - 1) / (int(ncrse) - 1);
+            
+            for (size_t m = 0; m < ncrse; m++) {
+              diff[m] = crse_factory->create(encap::EncapType::solution);
+              diff[m]->copy(crse.get_state(m));
+              
+              if (crse_nodes[m] != fine_nodes[m * trat]) {
+                throw NotImplementedYet("coarse nodes must be nested");
+              }
+              this->restrict(restricted, fine_state[m * trat]);
+              diff[m]->saxpy(-1.0, restricted);
+            }
+
+            // interpolate the difference of coarse solution and restricted fine solution at coarse nodes to fine nodes
+            fine.get_state(0)->mat_apply(fine_state, 1.0, this->tmat, diff, false);
+            
+//             CLOG(INFO, "Parareal") << "Coarse";
+//             for (size_t m = 0; m < ncrse; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(crse.get_state(m))));
+//             CLOG(INFO, "Parareal") << "Fine";
+//             for (size_t m = 0; m < nfine; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(fine_state[m])));
           }
 
           void restrict(shared_ptr<Encapsulation> dst, shared_ptr<const Encapsulation> src) override

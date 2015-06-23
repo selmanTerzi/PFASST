@@ -135,12 +135,7 @@ namespace pfasst
             
             coarse->run();
             
-            if(as_vector<double>(coarseSweeper.get_end_state()).size() == as_vector<double>(end_state).size()) {
-              end_state->copy(coarseSweeper.get_end_state());
-            } 
-            else {
-              transfer->interpolate(end_state, coarseSweeper.get_end_state());
-            }
+            transfer->interpolate(end_state, coarseSweeper.get_end_state());
           }
           
           void do_fine(shared_ptr<Encapsulation<>> start_state,
