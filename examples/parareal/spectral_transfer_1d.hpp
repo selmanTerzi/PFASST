@@ -86,20 +86,22 @@ namespace pfasst
 
             vector<shared_ptr<Encapsulation>> diff(ncrse), fine_state(nfine);
             shared_ptr<Encapsulation> restricted = crse_factory->create(encap::EncapType::solution);
+            shared_ptr<Encapsulation> diffCoarse = crse_factory->create(encap::EncapType::solution);
             
             for (size_t m = 0; m < nfine; m++) { fine_state[m] = fine.get_state(m); }
             
             int trat = (int(nfine) - 1) / (int(ncrse) - 1);
             
             for (size_t m = 0; m < ncrse; m++) {
-              diff[m] = crse_factory->create(encap::EncapType::solution);
-              diff[m]->copy(crse.get_state(m));
+              diffCoarse->copy(crse.get_state(m));
               
               if (crse_nodes[m] != fine_nodes[m * trat]) {
                 throw NotImplementedYet("coarse nodes must be nested");
               }
               this->restrict(restricted, fine_state[m * trat]);
-              diff[m]->saxpy(-1.0, restricted);
+              diffCoarse->saxpy(-1.0, restricted);
+              diff[m] = fine_factory->create(encap::EncapType::solution);
+              this->interpolate(diff[m], diffCoarse);
             }
 
             // interpolate the difference of coarse solution and restricted fine solution at coarse nodes to fine nodes

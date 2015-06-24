@@ -41,9 +41,9 @@ namespace pfasst
           shared_ptr<SDC<time>> coarse; // coarse-level controller
           shared_ptr<SDC<time>> fine; // fine-level controller
           
-          shared_ptr<SpectralTransfer1D<time>> transfer;
+          shared_ptr<SpectralTransfer1D<time>> transfer; // transfer function
           
-          shared_ptr<EncapFactory<>> factory; // fine level factory
+          shared_ptr<EncapFactory<>> factory; // coarse level factory
           
           shared_ptr<Encapsulation<double>> u; // vector with current numerical solution at fine level
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
@@ -105,7 +105,7 @@ namespace pfasst
               CLOG(INFO, "Parareal") << "numTiters: " << numTiters;
             }
             
-            factory = make_shared<VectorFactory<double>>(ndofs_fine);
+            factory = make_shared<VectorFactory<double>>(ndofs_coarse);
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol, false);
             coarse = getSDC(nnodesCoarse, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol, true);
@@ -124,32 +124,29 @@ namespace pfasst
           }
           
           void do_coarse(shared_ptr<Encapsulation<>> start_state,
-                         shared_ptr<Encapsulation<>> end_state, bool predict) 
+                         shared_ptr<Encapsulation<>> end_state, 
+                         double start_time, bool predict) 
           {
+            if(predict) coarse->set_duration(start_time, start_time+dt, dt, 1);
             coarse->set_step(0);
             coarse->set_iteration(predict ? 0 : 1);
             EncapSweeper<time>& coarseSweeper = as_encap_sweeper<time>(coarse->get_finest());
             
             if(start_state) {
-              coarseSweeper.get_start_state()->copy(start_state);
-              coarseSweeper.reevaluate(true);
+              if(predict) {
+                coarseSweeper.get_start_state()->copy(start_state);
+              } else {
+                coarseSweeper.get_state(0)->copy(start_state);
+                coarseSweeper.reevaluate(true);
+              }
             }
             
             if(predict) CLOG(INFO, "Parareal") << "Predict";
             else CLOG(INFO, "Parareal") << "Coarse-Sweep";
             
-            
-            // DEBUG START//
-            auto& crseSweeper = as_encap_sweeper<time>(coarse->get_finest());
-            size_t ncrse = crseSweeper.get_nodes().size();
-            CLOG(INFO, "Parareal") << "Current State";
-            for (size_t m = 0; m < ncrse; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(crseSweeper.get_state(m))));
-            CLOG(INFO, "Parareal") << "Saved State";
-            for (size_t m = 0; m < ncrse; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(crseSweeper.get_saved_state(m))));
-            // DEBUG END //
-            
             coarse->run();
             
+            if(predict) coarse->set_duration(start_time, start_time+dt, dt, 2);
             end_state->copy(coarseSweeper.get_end_state());
           }
           
@@ -262,6 +259,7 @@ namespace pfasst
                 if(!predict) {
                   if(k == 1) transfer->PolyInterpMixin<time>::interpolate(fine->get_finest(), coarse->get_finest(), true);
                   else transfer->interpolateDiff(fine->get_finest(), coarse->get_finest());
+                  coarse->get_finest()->save();
                   do_fine();
                   transfer->PolyInterpMixin<time>::restrict(coarse->get_finest(), fine->get_finest(), true);
                   as_encap_sweeper<time>(coarse->get_finest()).reevaluate();
@@ -282,10 +280,8 @@ namespace pfasst
                   CLOG(INFO, "Parareal") << "Received state: " << ((vector<double>)(as_vector<double>(startState)));
                 }
                 
-                if(predict) coarse->set_duration(nglobal*dt, nglobal*dt+dt, dt, 1);
-                do_coarse(startState, coarseState, predict);
-                if(!predict) coarse->get_finest()->save();
-                if(predict) coarse->set_duration(nglobal*dt, nglobal*dt+dt, dt, 2);
+                
+                do_coarse(startState, coarseState, nglobal*dt, predict);
                 u->copy(coarseState);
                 
                 echo_error(k, j);
