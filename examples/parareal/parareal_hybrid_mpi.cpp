@@ -43,7 +43,8 @@ namespace pfasst
           
           shared_ptr<SpectralTransfer1D<time>> transfer; // transfer function
           
-          shared_ptr<EncapFactory<>> factory; // coarse level factory
+          shared_ptr<EncapFactory<>> factory_fine; // fine level factory
+          shared_ptr<EncapFactory<>> factory_crse; // crse level factory
           
           shared_ptr<Encapsulation<double>> u; // vector with current numerical solution at fine level
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
@@ -53,8 +54,7 @@ namespace pfasst
           double dt; // time step
           size_t nfineiters; // number of sdc iterations for fine propagator
           size_t ncrseiters; // number of sdc iterations for coarse propagator
-          
-          size_t numTiters; // number of parareal repetitions
+          size_t numTiters; // number of parareal repetitions (ring-blocking)
           
           double timeMeasure;
           
@@ -72,6 +72,9 @@ namespace pfasst
             sweeper->set_residual_tolerances(abs_res_tol, rel_res_tol);
             sweeper->set_quadrature(quad);
             sweeper->set_factory(factory);
+            
+            // workaround-solution, because the setup function of controller
+            // calls setup with default parameter coarse=false
             sweeper->set_controller(&*sdc);
             sweeper->setup(coarse);
             
@@ -88,7 +91,7 @@ namespace pfasst
           void init(const double t_end, const double dt, 
                     const size_t nnodes, const size_t nnodesCoarse,
                     const pfasst::quadrature::QuadratureType quad_type,
-                    const size_t ndofs_fine, const size_t ndofs_coarse,
+                    const size_t ndofs_fine, const size_t ndofs_crse,
                     const size_t nfineiters, const size_t ncrseiters,
                     const double abs_res_tol, const double rel_res_tol)
           {
@@ -96,6 +99,7 @@ namespace pfasst
             this->nfineiters = nfineiters;
             this->ncrseiters = ncrseiters;
             
+            // number of total time slices
             size_t numTSlices = t_end/dt;
             numTiters = numTSlices/commSize;
             if(numTSlices % commSize != 0) numTiters++;
@@ -105,20 +109,21 @@ namespace pfasst
               CLOG(INFO, "Parareal") << "numTiters: " << numTiters;
             }
             
-            factory = make_shared<VectorFactory<double>>(ndofs_coarse);
+            factory_fine = make_shared<VectorFactory<double>>(ndofs_fine);
+            factory_crse = make_shared<VectorFactory<double>>(ndofs_crse);
             
             fine = getSDC(nnodes, quad_type, ndofs_fine, abs_res_tol, rel_res_tol, false);
-            coarse = getSDC(nnodesCoarse, quad_type, ndofs_coarse, abs_res_tol, rel_res_tol, true);
+            coarse = getSDC(nnodesCoarse, quad_type, ndofs_crse, abs_res_tol, rel_res_tol, true);
             
-            err = factory->create(solution);
+            err = factory_fine->create(solution);
             transfer = make_shared<SpectralTransfer1D<>>();
             
-            u = factory->create(solution);
+            u = factory_fine->create(solution);
             
             uExact.clear();
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs_fine);
             for(size_t i = 0; i < numTiters; i++) {
-              uExact.push_back(factory->create(solution));
+              uExact.push_back(factory_fine->create(solution));
               sweeper->exact(uExact[i], (i*commSize + commRank + 1)*dt);
             }
           }
@@ -150,7 +155,7 @@ namespace pfasst
             end_state->copy(coarseSweeper.get_end_state());
           }
           
-          void do_fine() 
+          void do_fine(shared_ptr<Encapsulation<>> end_state) 
           {
             fine->set_step(0);
             fine->set_iteration(1);
@@ -158,13 +163,14 @@ namespace pfasst
             CLOG(INFO, "Parareal") << "Fine-Sweep";
             
             fine->run();
+            end_state->copy(as_encap_sweeper<time>(fine->get_finest()).get_end_state());
           }
           
-          shared_ptr<Encapsulation<double>> recvState(const size_t k, const size_t j, bool* prec_done)
+          void recvState(shared_ptr<Encapsulation<double>> state, const size_t k, const size_t j, bool* prec_done)
           {
             int t = tag(k, j, commRank);
             CLOG(INFO, "Parareal") << "Recv tag: " << t;
-            shared_ptr<Encapsulation<double>> state = factory->create(solution);
+            
             state->recv(comm, t, true);
             
             if(k > 0 && commRank > 0)
@@ -172,8 +178,6 @@ namespace pfasst
               comm->status->recv(t);
               *prec_done = comm->status->get_converged(commRank - 1);
             }
-            
-            return state;
           }
           
           int tag(const size_t k, const size_t j, int commRank) 
@@ -219,7 +223,7 @@ namespace pfasst
                             const size_t ncrseiters, const double dt, const double t_end,
                             const size_t nnodes, const size_t nnodesCoarse,
                             const pfasst::quadrature::QuadratureType quad_type,
-                            const size_t ndofs_fine, const size_t ndofs_coarse,
+                            const size_t ndofs_fine, const size_t ndofs_crse,
                             const double abs_res_tol, const double rel_res_tol)
           {
             if(!comm || commSize == 1) {
@@ -229,11 +233,11 @@ namespace pfasst
             }
             
             init(t_end, dt, nnodes, nnodesCoarse,
-                 quad_type, ndofs_fine, ndofs_coarse, nfineiters, 
+                 quad_type, ndofs_fine, ndofs_crse, nfineiters, 
                  ncrseiters, abs_res_tol, rel_res_tol);
             
-            auto coarseState = factory->create(solution);
-            auto diff = factory->create(solution);
+            auto coarseState = factory_crse->create(solution);
+            auto diff = factory_fine->create(solution);
             shared_ptr<Encapsulation<double>> startState;
             
             double res;
@@ -254,39 +258,30 @@ namespace pfasst
               
               for(size_t k = 0; k < npariters && !done; k++) { // loop over parareal iterations
                 
-                bool predict = k==0;
+                bool predict = k == 0;
                 
                 if(!predict) {
                   if(k == 1) transfer->PolyInterpMixin<time>::interpolate(fine->get_finest(), coarse->get_finest(), true);
                   else transfer->interpolateDiff(fine->get_finest(), coarse->get_finest());
                   coarse->get_finest()->save();
-                  do_fine();
+                  diff->copy(u);
+                  do_fine(u);
                   transfer->PolyInterpMixin<time>::restrict(coarse->get_finest(), fine->get_finest(), true);
                   as_encap_sweeper<time>(coarse->get_finest()).reevaluate();
-                  diff->copy(u);
-                  
-//                   auto& fineSweeper = as_encap_sweeper<time>(fine->get_finest());
-//                   auto& crseSweeper = as_encap_sweeper<time>(coarse->get_finest());
-//                   size_t nfine = fineSweeper.get_nodes().size();
-//                   size_t ncrse = crseSweeper.get_nodes().size();
-//                   CLOG(INFO, "Parareal") << "after fine sweep";
-//                   for (size_t m = 0; m < nfine; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(fineSweeper.get_state(m))));
-//                   CLOG(INFO, "Parareal") << "restricted";
-//                   for (size_t m = 0; m < ncrse; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(crseSweeper.get_state(m))));
                 }
                 
+                // get new initial value for coarse sweep
                 if(!prec_done && (commRank > 0 || (predict && j > 0))) {
-                  startState = recvState(k,j, &prec_done);
-                  CLOG(INFO, "Parareal") << "Received state: " << ((vector<double>)(as_vector<double>(startState)));
+                  if(!startState) startState = factory_crse->create(solution);
+                  recvState(startState, k,j, &prec_done);
+//                   CLOG(INFO, "Parareal") << "Received state: " << ((vector<double>)(as_vector<double>(startState)));
                 }
-                
                 
                 do_coarse(startState, coarseState, nglobal*dt, predict);
-                u->copy(coarseState);
                 
-                echo_error(k, j);
-                
+                // calc residium for break condition
                 if(!predict) {
+                  echo_error(k, j);
                   // calc the residium
                   diff->saxpy(-1.0, u);
                   res = diff->norm0();
@@ -296,11 +291,12 @@ namespace pfasst
                   CLOG(INFO, "Parareal") << "Done: " << done;
                 }
                 
+                // send new initial value to next processor
                 if(commRank < commSize - 1 && (nglobal+1)*dt <= t_end) {
                   int t = tag(k, j, commRank+1);
                   CLOG(INFO, "Parareal") << "Send tag: " << t;
-                  u->send(comm, t, true);
-                  CLOG(INFO, "Parareal") << "Send state: " << ((vector<double>)(as_vector<double>(u)));
+                  coarseState->send(comm, t, true);
+//                   CLOG(INFO, "Parareal") << "Send state: " << ((vector<double>)(as_vector<double>(coarseState)));
                   
                   if(!predict) {
                     comm->status->set_converged(done);
@@ -315,7 +311,8 @@ namespace pfasst
               
               if(j < numTiters - 1 && commRank == commSize - 1) {
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
-                u->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
+                transfer->restrict(coarseState, u);
+                coarseState->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
               }
             } // loop over time blocks
               
@@ -350,7 +347,7 @@ void run_example()
   const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 5);
   const size_t  nnodesCoarse = pfasst::config::get_value<size_t>("num_nodes_coarse", 5);
   const size_t  ndofs_fine  = pfasst::config::get_value<size_t>("spatial_dofs", 64);
-  const size_t  ndofs_coarse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
+  const size_t  ndofs_crse  = pfasst::config::get_value<size_t>("spatial_dofs_coarse", 64);
   auto const quad_type = \
     pfasst::config::get_value<pfasst::quadrature::QuadratureType>("nodes_type", pfasst::quadrature::QuadratureType::GaussLobatto);
   
@@ -359,7 +356,7 @@ void run_example()
   
   parareal.run_parareal(npariters, nfineiters, ncrseiters, dt, 
                         t_end, nnodes, nnodesCoarse,
-                        quad_type, ndofs_fine, ndofs_coarse,
+                        quad_type, ndofs_fine, ndofs_crse,
                         abs_res_tol, rel_res_tol);
 }
 
