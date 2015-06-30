@@ -41,14 +41,13 @@ namespace pfasst
           shared_ptr<SDC<time>> coarse; // coarse-level controller
           shared_ptr<SDC<time>> fine; // fine-level controller
           
-          shared_ptr<SpectralTransfer1D<time>> transfer;
+          shared_ptr<SpectralTransfer1D<time>> transfer; // transfer function
           
           shared_ptr<EncapFactory<>> factory; // fine level factory
           
           shared_ptr<Encapsulation<double>> u; // vector with current numerical solution at fine level
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
           shared_ptr<Encapsulation<double>> err;
-          error_map errors;
           
           double dt; // time step
           size_t nfineiters; // number of sdc iterations for fine propagator
@@ -153,10 +152,9 @@ namespace pfasst
             end_state->copy(fineSweeper.get_end_state());
           }
           
-          shared_ptr<Encapsulation<double>> recvState(const size_t k, const size_t j, bool* prec_done)
+          void recvState(shared_ptr<Encapsulation<double>> state, const size_t k, const size_t j, bool* prec_done)
           {
             CLOG(INFO, "Parareal") << "Recv tag: " << tag(k, j, commRank);
-            shared_ptr<Encapsulation<double>> state = factory->create(solution);
             state->recv(comm, tag(k, j, commRank), true);
             
             if(commRank > 0)
@@ -164,8 +162,6 @@ namespace pfasst
               comm->status->recv(0);
               *prec_done = comm->status->get_converged(commRank - 1);
             }
-            
-            return state;
           }
           
           int tag(const size_t k, const size_t j, int commRank) 
@@ -178,7 +174,6 @@ namespace pfasst
             size_t n_global = commSize * j + commRank;
             err->copy(uExact[j]);
             err->saxpy(-1.0, u);
-            errors.insert(vtype(ktype(n_global, k-1), err->norm0()));
             CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
           }
           
@@ -242,6 +237,7 @@ namespace pfasst
             for(size_t j = 0; j < numTiters; j++) { // loop over time blocks
               
               size_t nglobal = commSize * j + commRank;
+              if(nglobal*dt > t_end) break;
               
               bool initial = commRank == 0 && j == 0;
               coarse->set_duration(nglobal*dt, nglobal*dt+dt, dt, ncrseiters);
@@ -249,21 +245,28 @@ namespace pfasst
               
               for(size_t k = 0; k < npariters && !done; k++) { // loop over parareal iterations
                 
-                if((k > 0 && commRank < k-1) || nglobal*dt > t_end) break;
+                bool predict = k == 0;
                 
-                if(k > 0) {
+                if(!predict && commRank < k-1) break;
+                
+                if(!predict) {
                   do_fine(startState, fineState); 
                   diff->copy(u); // calculate residium for break condition
                 }
                 
                 if(commRank >= k) {
                   
-                  if(!initial && !prec_done) startState = recvState(k,j, &prec_done);
-                  else if(!initial) done = true;
+                  if(!initial && !prec_done)  {
+                    if(!startState) startState = factory->create(solution);
+                    recvState(startState, k,j, &prec_done);
+                  }
+                  else if(!initial) {
+                    done = true;
+                  }
                   
                   do_coarse(startState, coarseState);
                   
-                  if(k == 0) {
+                  if(predict) {
                     u->copy(coarseState);
                   }
                   else {
@@ -284,7 +287,7 @@ namespace pfasst
                 }
                 echo_error(k, j);
                 
-                if(k > 0 && !done) {
+                if(!predict && !done) {
                   // calc the residium
                   diff->saxpy(-1.0, u);
                   res = diff->norm0();

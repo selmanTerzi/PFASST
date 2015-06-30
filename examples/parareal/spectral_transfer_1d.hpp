@@ -103,14 +103,11 @@ namespace pfasst
               diff[m] = fine_factory->create(encap::EncapType::solution);
               this->interpolate(diff[m], diffCoarse);
             }
-
+            
             // interpolate the difference of coarse solution and restricted fine solution at coarse nodes to fine nodes
             fine.get_state(0)->mat_apply(fine_state, 1.0, this->tmat, diff, false);
             
-//             CLOG(INFO, "Parareal") << "Coarse";
-//             for (size_t m = 0; m < ncrse; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(crse.get_state(m))));
-//             CLOG(INFO, "Parareal") << "Fine";
-//             for (size_t m = 0; m < nfine; m++) CLOG(INFO, "Parareal") << ((vector<double>)(as_vector<double>(fine_state[m])));
+            fine.reevaluate();
           }
 
           void restrict(shared_ptr<Encapsulation> dst, shared_ptr<const Encapsulation> src) override
