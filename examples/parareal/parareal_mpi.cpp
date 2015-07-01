@@ -171,7 +171,7 @@ namespace pfasst
           
           void echo_error(const size_t k, const size_t j)
           {
-            size_t n_global = commSize * j + commRank;
+            size_t n_global = commSize * j + commRank + 1;
             err->copy(uExact[j]);
             err->saxpy(-1.0, u);
             CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
@@ -321,9 +321,9 @@ namespace pfasst
             CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
           } // function run_parareal
       }; // Class Parareal
-    } // namespace parareal
-  } // namespace examples
-} // namespace pfasst
+    } // ::parareal
+  } // ::examples
+} // ::pfasst
 
 
 void run_example()
