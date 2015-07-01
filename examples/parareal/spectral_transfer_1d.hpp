@@ -85,26 +85,26 @@ namespace pfasst
             auto fine_factory = fine.get_factory();
 
             vector<shared_ptr<Encapsulation>> diff(ncrse), fine_state(nfine);
-            shared_ptr<Encapsulation> restricted = crse_factory->create(encap::EncapType::solution);
             shared_ptr<Encapsulation> diffCoarse = crse_factory->create(encap::EncapType::solution);
             
             for (size_t m = 0; m < nfine; m++) { fine_state[m] = fine.get_state(m); }
             
-            int trat = (int(nfine) - 1) / (int(ncrse) - 1);
+            CLOG(INFO, "Parareal") << "Current state:";
+            for(size_t m=0; m < ncrse; m++) CLOG(INFO, "Parareal") << (vector<double>)(encap::as_vector<double>(crse.get_state(m)));
+            CLOG(INFO, "Parareal") << "Saved state:";
+            for(size_t m=0; m < ncrse; m++) CLOG(INFO, "Parareal") << (vector<double>)(encap::as_vector<double>(crse.get_saved_state(m)));
             
             for (size_t m = 0; m < ncrse; m++) {
               diffCoarse->copy(crse.get_state(m));
+              diffCoarse->saxpy(-1.0, crse.get_saved_state(m));
               
-              if (crse_nodes[m] != fine_nodes[m * trat]) {
-                throw NotImplementedYet("coarse nodes must be nested");
-              }
-              this->restrict(restricted, fine_state[m * trat]);
-              diffCoarse->saxpy(-1.0, restricted);
+              CLOG(INFO, "Parareal") << "Diff-Norm: " << diffCoarse->norm0();
+              
               diff[m] = fine_factory->create(encap::EncapType::solution);
               this->interpolate(diff[m], diffCoarse);
             }
             
-            // interpolate the difference of coarse solution and restricted fine solution at coarse nodes to fine nodes
+            // interpolate the difference of last and current coarse solution to fine nodes
             fine.get_state(0)->mat_apply(fine_state, 1.0, this->tmat, diff, false);
             
             fine.reevaluate();

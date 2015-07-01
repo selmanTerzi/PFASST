@@ -28,6 +28,7 @@ namespace pfasst
         CLOG(INFO, "Parareal") << "tend: " << this->get_end_time() 
                                << " dt: " << this->get_time_step()
                                << " num_iter: " << this->get_max_iterations();
+        
         size_t numTiters = this->get_end_time()/this->get_time_step()/this->commSize;
         
         shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
@@ -41,6 +42,8 @@ namespace pfasst
           size_t nglobal = commSize * j + commRank;
           if(nglobal*this->get_time_step() > this->get_end_time()) break;
           
+          this->set_step(nglobal);
+          
           for(this->set_iteration(0); 
               this->get_iteration() < this->get_max_iterations() && !done; 
               this->advance_iteration()) { // loop over parareal iterations
@@ -48,27 +51,42 @@ namespace pfasst
             size_t k = this->get_iteration();
           
             bool predict = k == 0;
+            bool recvStartValue = commRank > 0 || (predict && j > 0);
+            
             if(!predict) {
-              if(k == 1) {
-                CLOG(INFO, "Parareal") << "Interpolating coarse to fine";
-                transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
-              }
-              else {
-                CLOG(INFO, "Parareal") << "Interpolating difference from coarse to fine";
-                transferFunc->interpolateDiff(fineSweeper, coarseSweeper);
-              }
-              coarseEncap->save(false);
+              
+              CLOG(INFO, "Parareal") << "Interpolating coarse to fine";
+              transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
+              
+//               if(k == 1) {
+//                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
+//                 CLOG(INFO, "Parareal") << "Interpolating coarse to fine";
+//               }
+//               else if(commRank > 0) {
+//                 transferFunc->interpolate(fineEncap->get_state(0), startState);
+//                 fineEncap->reevaluate(true);
+//               }
+                
               diff->copy(fineEncap->get_end_state());
+              
+//               CLOG(INFO, "Parareal") << "Fine Nodes before Sweep";
+//               for(size_t m=0; m < fineEncap->get_nodes().size(); m++) CLOG(INFO, "Parareal") << (vector<double>)(as_vector<double>(fineEncap->get_state(m)));
+              
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
+              
+//               CLOG(INFO, "Parareal") << "Fine Nodes After Sweep";
+//               for(size_t m=0; m < fineEncap->get_nodes().size(); m++) CLOG(INFO, "Parareal") << (vector<double>)(as_vector<double>(fineEncap->get_state(m)));
+              
               CLOG(INFO, "Parareal") << "Restricting from fine to coarse";
+              
+              coarseEncap->save(false);
               transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
-              coarseEncap->reevaluate();
             }
             
             // get new initial value for coarseEncap sweep
-            if(!prec_done && (commRank > 0 || (predict && j > 0))) {
+            if(!prec_done && recvStartValue) {
               if(!startState) startState = factory_crse->create(solution);
               recvState(startState, k, j, &prec_done);
             }
@@ -90,8 +108,14 @@ namespace pfasst
             if(commRank < commSize - 1 && (nglobal+1)*this->get_time_step() <= this->get_end_time()) {
               int t = tag(k, j, commRank+1);
               CLOG(INFO, "Parareal") << "Send tag: " << t;
-              if(!predict) transferFunc->restrict(coarseState, fineEncap->get_end_state());
+              
+              diff->copy(coarseState);
+              diff->saxpy(-1.0, coarseEncap->get_saved_state(coarseEncap->get_nodes().size()-1));
+              transferFunc->restrict(coarseState, fineEncap->get_end_state());
+              coarseState->saxpy(1.0, diff);
               coarseState->send(comm, t, true);
+              
+              CLOG(INFO, "Parareal") << "Send state: " << (vector<double>)(as_vector<double>(coarseState));
               
               if(!predict) {
                 comm->status->set_converged(done);
@@ -102,12 +126,13 @@ namespace pfasst
             
           comm->status->clear();
           prec_done = false;
-          done = false; 
+          done = false;
           
           if(j < numTiters - 1 && commRank == commSize - 1) {
             CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
             transferFunc->restrict(coarseState, fineEncap->get_end_state());
             coarseState->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
+            CLOG(INFO, "Parareal") << "Send state: " << (vector<double>)(as_vector<double>(coarseState));
           }
         } // loop over time blocks
           
@@ -129,18 +154,23 @@ namespace pfasst
             coarseEncap->reevaluate(true);
           }
         }
-            
-        if(predict) CLOG(INFO, "Parareal") << "Predict";
-        else CLOG(INFO, "Parareal") << "Coarse-Sweep";
+        
+//         CLOG(INFO, "Parareal") << "Coarse nodes before Sweep: ";
+//         for(size_t m=0; m < coarseEncap->get_nodes().size(); m++) CLOG(INFO, "Parareal") << (vector<double>)(as_vector<double>(coarseEncap->get_state(m)));
         
         if(predict) {
+          CLOG(INFO, "Parareal") << "Coarse-Predict";
           coarseEncap->predict(true);
           coarseEncap->post_predict();
         }
         else {
+          CLOG(INFO, "Parareal") << "Coarse-Sweep";
           coarseEncap->sweep();
           coarseEncap->post_sweep();
-        } 
+        }
+        
+//         CLOG(INFO, "Parareal") << "Coarse nodes after Sweep: ";
+//         for(size_t m=0; m < coarseEncap->get_nodes().size(); m++) CLOG(INFO, "Parareal") << (vector<double>)(as_vector<double>(coarseEncap->get_state(m)));
         
         end_state->copy(coarseEncap->get_end_state());
       }
@@ -153,6 +183,8 @@ namespace pfasst
         CLOG(INFO, "Parareal") << "Recv tag: " << t;
         
         state->recv(comm, t, true);
+        
+//         CLOG(INFO, "Parareal") << "Recv state: " << (vector<double>)(as_vector<double>(state));
         
         if(k > 0 && commRank > 0)
         {
@@ -180,18 +212,18 @@ namespace pfasst
                                        shared_ptr<SpectralTransfer1D<>> transferFunc)
       {
         this->abs_res_tol = abs_res_tol;
-        
-        this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
-        this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());
         this->transferFunc = transferFunc;
-        
-        this->fineEncap->set_controller(this);
-        this->coarseEncap->set_controller(this);
-        this->fineEncap->setup(false);
-        this->coarseEncap->setup(true);
         
         this->factory_fine = make_shared<VectorFactory<double>>(ndofsfine);
         this->factory_crse = make_shared<VectorFactory<double>>(ndofscoarse);
+        
+        this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
+        this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());
+        
+        fineEncap->set_controller(this);
+        coarseEncap->set_controller(this);
+        fineEncap->setup(false);
+        coarseEncap->setup(true);
       }
     }  // ::parareal
   }  // ::examples
