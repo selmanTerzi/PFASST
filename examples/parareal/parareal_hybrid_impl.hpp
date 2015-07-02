@@ -17,7 +17,7 @@ namespace pfasst
         }
         
         auto coarseState = factory_crse->create(solution);
-        shared_ptr<Encapsulation<double>> startState;
+        shared_ptr<Encapsulation<time>> startState;
         
         auto finedelta = factory_fine->create(solution);
         auto crsedelta = factory_crse->create(solution);
@@ -58,7 +58,6 @@ namespace pfasst
             
             if(!predict) {
               if(k == 1) {
-//                 CLOG(INFO, "Parareal") << "Interpolating coarse to fine";
                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
               }
               else if(commRank > 0) {
@@ -79,7 +78,6 @@ namespace pfasst
               CLOG(INFO, "Parareal") << "Residual: " << res;
               if(done) CLOG(INFO, "Parareal") << "Done!";
               
-//               CLOG(INFO, "Parareal") << "Restricting from fine to coarse";
               coarseEncap->save(false);
               transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
             }
@@ -129,8 +127,8 @@ namespace pfasst
       }
       
       template<typename time>
-      void HybridParareal<time>::do_coarse(shared_ptr<Encapsulation<>> start_state,
-                                           shared_ptr<Encapsulation<>> end_state, 
+      void HybridParareal<time>::do_coarse(shared_ptr<Encapsulation<time>> start_state,
+                                           shared_ptr<Encapsulation<time>> end_state, 
                                            bool predict) 
       {
         if(start_state) {
@@ -158,7 +156,7 @@ namespace pfasst
       }
       
       template<typename time>
-      void HybridParareal<time>::recvState(shared_ptr<Encapsulation<double>> state, 
+      void HybridParareal<time>::recvState(shared_ptr<Encapsulation<time>> state, 
                                            const size_t k, const size_t j, bool* prec_done)
       {
         int t = tag(k, j, commRank);
@@ -193,8 +191,8 @@ namespace pfasst
         this->abs_res_tol = abs_res_tol;
         this->transferFunc = transferFunc;
         
-        this->factory_fine = make_shared<VectorFactory<double>>(ndofsfine);
-        this->factory_crse = make_shared<VectorFactory<double>>(ndofscoarse);
+        this->factory_fine = make_shared<VectorFactory<time>>(ndofsfine);
+        this->factory_crse = make_shared<VectorFactory<time>>(ndofscoarse);
         
         this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
         this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());

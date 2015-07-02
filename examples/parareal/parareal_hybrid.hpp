@@ -46,11 +46,11 @@ namespace pfasst
         private:
           virtual int tag(const size_t k, const size_t j, int commRank);
           
-          void do_coarse(shared_ptr<Encapsulation<>> start_state,
-                         shared_ptr<Encapsulation<>> end_state, 
+          void do_coarse(shared_ptr<Encapsulation<time>> start_state,
+                         shared_ptr<Encapsulation<time>> end_state, 
                          bool predict);
           
-          void recvState(shared_ptr<Encapsulation<double>> state, const size_t k, 
+          void recvState(shared_ptr<Encapsulation<time>> state, const size_t k, 
                          const size_t j, bool* prec_done);
           
         public:
