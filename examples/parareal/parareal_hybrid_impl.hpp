@@ -25,12 +25,13 @@ namespace pfasst
         
         bool prec_done = false; // boolean for checking if the precedessor is done
         bool done = false; // boolean for breaking next iteration if converged
+        bool recvStartValue = false; // boolean for determining if a new startValue must be received
         
         CLOG(INFO, "Parareal") << "tend: " << this->get_end_time() 
                                << " dt: " << this->get_time_step()
                                << " num_iter: " << this->get_max_iterations();
         
-        size_t numTiters = this->get_end_time()/this->get_time_step()/this->commSize;
+        size_t numTiters = this->get_end_time()/this->get_time_step()/this->commSize+1;
         
         shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
         shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
@@ -41,30 +42,32 @@ namespace pfasst
         for(size_t j = 0; j < numTiters; j++) { // loop over time blocks
           
           size_t nglobal = commSize * j + commRank;
-          if(this->get_time() > this->get_end_time()) break;
-          
           this->set_step(nglobal);
+          
+          CLOG(INFO, "Parareal") << "Time: " << this->get_time();
+          if(this->get_time() >= this->get_end_time()) break;
+          
           bool hasSuccessor = commRank < commSize - 1 &&
                               this->get_time() + this->get_time_step() <= this->get_end_time();
-          
-          for(this->set_iteration(0); 
+                              
+          CLOG(INFO, "Parareal") << "hasSuccessor: " << hasSuccessor;
+          for(this->set_iteration(0);
               this->get_iteration() < this->get_max_iterations() && !done; 
               this->advance_iteration()) { // loop over parareal iterations
             
             size_t k = this->get_iteration();
           
             bool predict = k == 0;
-            bool recvStartValue = commRank > 0 || (j > 0 && predict);
             
             if(!predict) {
               if(k == 1) {
                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
               }
-              else if(commRank > 0) {
+              else if(recvStartValue) {
                 transferFunc->interpolate(fineEncap->get_state(0), startState);
                 fineEncap->reevaluate(true);
               }
-                
+              
               finedelta->copy(fineEncap->get_end_state());
               
               CLOG(INFO, "Parareal") << "Fine Sweep";
@@ -82,8 +85,10 @@ namespace pfasst
               transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
             }
             
+            
+            recvStartValue = !prec_done && (commRank > 0 || (j > 0 && predict));
             // get new initial value for coarse sweep
-            if(!prec_done && recvStartValue) {
+            if(recvStartValue) {
               if(!startState) {
                 startState = factory_crse->create(solution);
               }
@@ -97,13 +102,7 @@ namespace pfasst
             // send new initial value to next processor
             if(hasSuccessor) {
               int t = tag(k,j,commRank+1);
-              
-              // Calculate parareal-correction
-              crsedelta->copy(coarseState);
-              crsedelta->saxpy(-1.0, coarseEncap->get_saved_state(coarseEncap->get_nodes().size()-1));
-              transferFunc->restrict(coarseState, fineEncap->get_end_state());
-              coarseState->saxpy(1.0, crsedelta);
-              coarseState->send(comm, t, true);
+              sendCorrection(crsedelta, coarseState, t);
               
               if(!predict) {
                 comm->status->set_converged(done);
@@ -168,6 +167,18 @@ namespace pfasst
           comm->status->recv(t);
           *prec_done = comm->status->get_converged(commRank - 1);
         }
+      }
+      
+      template<typename time>
+      void HybridParareal<time>::sendCorrection(shared_ptr<Encapsulation<time>> crsedelta,
+                                                shared_ptr<Encapsulation<time>> coarseState, int tag)
+      {
+        // Calculate parareal-correction
+        crsedelta->copy(coarseState);
+        crsedelta->saxpy(-1.0, coarseEncap->get_saved_state(coarseEncap->get_nodes().size()-1));
+        transferFunc->restrict(coarseState, fineEncap->get_end_state());
+        coarseState->saxpy(1.0, crsedelta);
+        coarseState->send(comm, tag, true);
       }
       
       template<typename time>

@@ -8,7 +8,7 @@ include_directories(
 )
 
 set(parareal_examples
-    parareal
+    parareal_serial
 )
 
 set(parareal_mpi_examples)
@@ -18,7 +18,7 @@ if(${pfasst_WITH_MPI})
         parareal_mpi
         parareal_hybrid
     )
-    set(all_parareal_examples ${parareal_mpi_examples})
+    set(all_parareal_examples ${parareal_examples} ${parareal_mpi_examples})
 else()
     set(all_parareal_examples ${parareal_examples})
 endif()

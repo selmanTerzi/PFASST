@@ -1,4 +1,3 @@
-#include <iostream>
 #include <memory>
 #include <vector>
 #include <ctime>
@@ -11,6 +10,7 @@ using namespace std;
 #include <pfasst/interfaces.hpp>
 #include <pfasst/quadrature.hpp>
 #include <pfasst/encap/encap_sweeper.hpp>
+#include <pfasst/encap/vector.hpp>
 
 #include "advection_diffusion_sweeper.hpp"
 #include "spectral_transfer_1d.hpp"
@@ -42,7 +42,6 @@ namespace pfasst
           vector<shared_ptr<Encapsulation<double>>> uExact; // vector with exact solution at fine level
           
           shared_ptr<Encapsulation<double>> err;
-          error_map errors;
           
           vector<bool> done;
           
@@ -139,12 +138,11 @@ namespace pfasst
             end_state->copy(fineSweeper.get_end_state());
           }
           
-          void echo_error(size_t n, size_t k)
+          void echo_error(const size_t n, const size_t k, const double residual)
           {
             err->copy(uExact[n]);
             err->saxpy(-1.0, u[n]);
-            CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " n: " << n << " k: " << k;
-            errors.insert(vtype(ktype(n, k-1), err->norm0()));
+            CLOG(INFO, "Parareal") << "ErrorParareal: step: " << n+1<< " iter: " << k << " residual: " << residual << " err: " << err->norm0();
           }
           
         public:
@@ -181,7 +179,7 @@ namespace pfasst
             shared_ptr<Encapsulation<double>> fineState = factory->create(solution);
             shared_ptr<Encapsulation<double>> delta = factory->create(solution);
             shared_ptr<Encapsulation<double>> diff = factory->create(solution);
-            double res;
+            double res = 0.0;
             
             clock_t timeMeasure = clock();
             
@@ -218,7 +216,6 @@ namespace pfasst
                   diff->saxpy(-1.0,u[n]);
                   res = diff->norm0();
                   if(res < abs_res_tol) nextNStart++;
-                  CLOG(INFO, "Parareal") << "Residium: " << res << " n: " << n << " k: " << k;
                 }
                 else {
                   u[n]->copy(coarseState);
@@ -226,7 +223,7 @@ namespace pfasst
                 uCoarse[n]->copy(coarseState);
                 uFine[n]->copy(fineState);
                 
-                echo_error(n,k);
+                echo_error(n, k, res);
               } // loop over time slices
               n_start = nextNStart;
             } // loop over parareal iterations

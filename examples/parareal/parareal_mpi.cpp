@@ -1,4 +1,3 @@
-#include <iostream>
 #include <memory>
 #include <vector>
 using namespace std;
@@ -169,12 +168,12 @@ namespace pfasst
             return k * 10000 + commSize * j + commRank;
           }
           
-          void echo_error(const size_t k, const size_t j)
+          void echo_error(const size_t k, const size_t j, const double residual)
           {
-            size_t n_global = commSize * j + commRank + 1;
+            size_t nglobal = commSize * j + commRank + 1;
             err->copy(uExact[j]);
             err->saxpy(-1.0, u);
-            CLOG(INFO, "Parareal") << "Error: " << err->norm0() << " k: " << k << " n: " << n_global;
+            CLOG(INFO, "Parareal") << "ErrorParareal: step: " << nglobal << " iter: " << k << " residual: " << residual << " err: " << err->norm0();
           }
           
         public:
@@ -251,7 +250,7 @@ namespace pfasst
                 
                 if(!predict) {
                   do_fine(startState, fineState); 
-                  diff->copy(u); // calculate residium for break condition
+                  diff->copy(u); // calculate residual for break condition
                 }
                 
                 if(commRank >= k) {
@@ -285,16 +284,16 @@ namespace pfasst
                 else {
                   u->copy(fineState);
                 }
-                echo_error(k, j);
+                echo_error(k, j, 0.0);
                 
                 if(!predict && !done) {
-                  // calc the residium
+                  // calc the residual
                   diff->saxpy(-1.0, u);
                   res = diff->norm0();
                   done = res < abs_res_tol;
                   
-                  CLOG(INFO, "Parareal") << "Residium: " << res;
-                  CLOG(INFO, "Parareal") << "Done: " << done;
+                  echo_error(k, j, res);
+                  if(done) CLOG(INFO, "Parareal") << "Done!";
                 }
                 
                 if(commRank < commSize - 1 && (nglobal+1)*dt <= t_end) {

@@ -22,10 +22,9 @@ namespace pfasst
   void SDC<time>::run()
   {
     auto sweeper = this->get_level(0);
-    
+
     for (; this->get_time() < this->get_end_time(); this->advance_time()) {
       bool initial = this->get_step() == 0;
-      
       for (this->set_iteration(0);
            this->get_iteration() < this->get_max_iterations();
            this->advance_iteration()) {
