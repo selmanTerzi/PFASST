@@ -81,7 +81,10 @@ namespace pfasst
         fineSweeper->exact(fineSweeper->get_start_state(), 0.0);
         coarseSweeper->exact(coarseSweeper->get_start_state(), 0.0);
         
+        double timeMeasure = MPI_Wtime();
         para.run();
+        timeMeasure = MPI_Wtime() - timeMeasure;
+        CLOG(INFO, "Advec") << "time Measurement: " << timeMeasure;
       }
     }  // ::parareal
   }  // ::examples

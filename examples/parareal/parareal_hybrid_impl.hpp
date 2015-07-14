@@ -37,7 +37,6 @@ namespace pfasst
         shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
         
         MPI_Barrier(MPI_COMM_WORLD);
-        double timeMeasure = MPI_Wtime();
         
         for(size_t nblock = 0; nblock < nblocks; nblock++) { // loop over time blocks
           this->set_step(commSize * nblock + commRank);
@@ -122,9 +121,6 @@ namespace pfasst
             coarseState->send(comm, tag(0, nblock+1, 0), true);
           }
         } // loop over time blocks
-          
-        timeMeasure = MPI_Wtime() - timeMeasure;
-        CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
       }
       
       template<typename time>
