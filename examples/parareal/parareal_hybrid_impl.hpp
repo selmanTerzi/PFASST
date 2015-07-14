@@ -31,7 +31,7 @@ namespace pfasst
                                << " dt: " << this->get_time_step()
                                << " num_iter: " << this->get_max_iterations();
         
-        size_t numTiters = this->get_end_time()/this->get_time_step()/this->commSize+1;
+        size_t nblocks = this->get_end_time()/this->get_time_step()/this->commSize+1;
         
         shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
         shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
@@ -39,10 +39,8 @@ namespace pfasst
         MPI_Barrier(MPI_COMM_WORLD);
         double timeMeasure = MPI_Wtime();
         
-        for(size_t j = 0; j < numTiters; j++) { // loop over time blocks
-          
-          size_t nglobal = commSize * j + commRank;
-          this->set_step(nglobal);
+        for(size_t nblock = 0; nblock < nblocks; nblock++) { // loop over time blocks
+          this->set_step(commSize * nblock + commRank);
           
           CLOG(INFO, "Parareal") << "Time: " << this->get_time();
           if(this->get_time() >= this->get_end_time()) break;
@@ -64,7 +62,7 @@ namespace pfasst
                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
               }
               else if(recvStartValue) {
-                transferFunc->interpolate(fineEncap->get_state(0), startState);
+                transferFunc->interpolate(fineEncap->get_state(0), coarseEncap->get_state(0));
                 fineEncap->reevaluate(true);
               }
               
@@ -86,22 +84,26 @@ namespace pfasst
             }
             
             
-            recvStartValue = !prec_done && (commRank > 0 || (j > 0 && predict));
+            recvStartValue = !prec_done && (commRank > 0 || (nblock > 0 && predict));
             // get new initial value for coarse sweep
             if(recvStartValue) {
-              if(!startState) {
-                startState = factory_crse->create(solution);
+              int t = tag(k, nblock, commRank);
+              coarseEncap->recv(comm, t, true);
+              
+              if(!predict && commRank > 0)
+              {
+                comm->status->recv(t);
+                prec_done = comm->status->get_converged(commRank - 1);
               }
-              recvState(startState, k, j, &prec_done);
             }
             
             if(predict || hasSuccessor) {
-              do_coarse(startState, coarseState, predict);
+              do_coarse(coarseState, predict);
             }
             
             // send new initial value to next processor
             if(hasSuccessor) {
-              int t = tag(k,j,commRank+1);
+              int t = tag(k, nblock,commRank+1);
               sendCorrection(crsedelta, coarseState, t);
               
               if(!predict) {
@@ -115,9 +117,9 @@ namespace pfasst
           prec_done = false;
           done = false;
           
-          if(j < numTiters - 1 && !hasSuccessor) {
+          if(nblock < nblocks - 1 && !hasSuccessor) {
             transferFunc->restrict(coarseState, fineEncap->get_end_state());
-            coarseState->send(comm, tag(0,j+1,0), true);
+            coarseState->send(comm, tag(0, nblock+1, 0), true);
           }
         } // loop over time blocks
           
@@ -126,20 +128,9 @@ namespace pfasst
       }
       
       template<typename time>
-      void HybridParareal<time>::do_coarse(shared_ptr<Encapsulation<time>> start_state,
-                                           shared_ptr<Encapsulation<time>> end_state, 
+      void HybridParareal<time>::do_coarse(shared_ptr<Encapsulation<time>> end_state, 
                                            bool predict) 
       {
-        if(start_state) {
-          if(predict) {
-            coarseEncap->get_start_state()->copy(start_state);
-          } 
-          else {
-            coarseEncap->get_state(0)->copy(start_state);
-            coarseEncap->reevaluate(true);
-          }
-        }
-        
         if(predict) {
           CLOG(INFO, "Parareal") << "Coarse Predict";
           coarseEncap->predict(true);
@@ -152,21 +143,6 @@ namespace pfasst
         }
         
         end_state->copy(coarseEncap->get_end_state());
-      }
-      
-      template<typename time>
-      void HybridParareal<time>::recvState(shared_ptr<Encapsulation<time>> state, 
-                                           const size_t k, const size_t j, bool* prec_done)
-      {
-        int t = tag(k, j, commRank);
-        
-        state->recv(comm, t, true);
-        
-        if(k > 0 && commRank > 0)
-        {
-          comm->status->recv(t);
-          *prec_done = comm->status->get_converged(commRank - 1);
-        }
       }
       
       template<typename time>
