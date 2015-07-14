@@ -10,7 +10,7 @@ class Input():
     spatial_dofs_coarse = 64
     num_nodes = 5
     num_nodes_coarse = 3
-    abs_res_tol = 1e-14
+    abs_res_tol = 1e-10
     num_crse_iter = 20
     num_fine_iter = 20
     num_iter = 20

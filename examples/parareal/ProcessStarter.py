@@ -20,7 +20,7 @@ def run_parareal_serial(step=5,
                         num_crse_iter=20,
                         num_fine_iter=20,
                         num_iter=20):
-    grep = Popen(['grep', 'ErrorParareal:'], stdin=PIPE, stdout=PIPE)
+    grep = Popen(['grep', '\(ErrorParareal\|time Measurement\)'], stdin=PIPE, stdout=PIPE)
     para = Popen(['%s/examples/parareal/parareal_serial' % buildFolder,
                   '--dt', '%f' % dt,
                   '--num_steps', '%d' % step,
@@ -36,7 +36,7 @@ def run_parareal_serial(step=5,
     output = grep.communicate()[0]
     para.wait()
 
-    return getErrorMapSDC(output)
+    return getResultSDC(output)
 
 
 def run_parareal_mpi(nproc=2,
@@ -50,7 +50,7 @@ def run_parareal_mpi(nproc=2,
                      num_crse_iter=20,
                      num_fine_iter=20,
                      num_iter=20):
-    grep = Popen(['grep', 'ErrorParareal:'], stdin=PIPE, stdout=PIPE)
+    grep = Popen(['grep', '\(ErrorParareal\|time Measurement\)'], stdin=PIPE, stdout=PIPE)
     para = Popen(['mpirun',
                   '-np', '%d' % nproc,
                   '%s/examples/parareal/parareal_mpi' % buildFolder,
@@ -68,7 +68,8 @@ def run_parareal_mpi(nproc=2,
     output = grep.communicate()[0]
     para.wait()
 
-    return getErrorMapSDC(output)
+    print('parareal_mpi')
+    return getResultSDC(output)
 
 def run_vanilla_sdc(step=5,
                     dt=0.01,
@@ -76,7 +77,7 @@ def run_vanilla_sdc(step=5,
                     abs_res_tol=1e-14,
                     num_nodes=3,
                     num_iter=5):
-    grep = Popen(['grep', 'step:'], stdin=PIPE, stdout=PIPE)
+    grep = Popen(['grep', '\(step\|time Measurement\)'], stdin=PIPE, stdout=PIPE)
     sdc = Popen(['%s/examples/advection_diffusion/vanilla_sdc' % buildFolder,
                  '--dt', '%f' % dt,
                  '--tend', '%f' % (dt * step),
@@ -88,38 +89,45 @@ def run_vanilla_sdc(step=5,
     output = grep.communicate()[0]
     sdc.wait()
 
-    return getErrorMapSDC(output)
+    print('vanilla_sdc')
+    return getResultSDC(output)
 
-def getErrorMapSDC(output):
+def getResultSDC(output):
     lines = output.splitlines()
-    errMap, resMap, iterMap, maxIter, maxStep = getErrAndResMap(lines)
-    return getResult(errMap, resMap, iterMap, maxIter, maxStep)
+    errMap, resMap, iterMap, maxIter, maxStep, timeMeasure = parseLines(lines)
+    return getResult(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure)
 
-def getErrAndResMap(lines):
+def parseLines(lines):
     errMap = {}
     resMap = {}
     iterMap = {}
 
     maxStep = 0
     maxIter = 0
+    timeMeasure = 0
 
     for i in range(len(lines)):
         line = lines[i].decode("utf-8")
-        iter = int(re.findall("iter:\s*(\d*)", line)[0])
-        step = int(re.findall("step:\s*(\d*)", line)[0])
-        iterMap[step] = iter
+        if len(re.findall("time Measurement", line)) > 0:
+            t = float(re.findall("time Measurement:\s*(%s)" % sciRegex, line)[0])
+            if t > timeMeasure: timeMeasure = t
+        else:
+            iter = int(re.findall("iter:\s*(\d*)", line)[0])
+            step = int(re.findall("step:\s*(\d*)", line)[0])
+            iterMap[step] = iter
 
-        if step > maxStep: maxStep = step
-        if iter > maxIter: maxIter = iter
+            if step > maxStep: maxStep = step
+            if iter > maxIter: maxIter = iter
 
-        error = float(re.findall("err:\s*(%s)" % sciRegex, line)[0])
-        errMap[iter] = errMap.get(iter, {})
-        errMap[iter][step] = error
-        residual = float(re.findall("residual:\s*(%s)" % sciRegex, line)[0])
-        resMap[iter] = resMap.get(iter, {})
-        resMap[iter][step] = residual
+            error = float(re.findall("err:\s*(%s)" % sciRegex, line)[0])
+            errMap[iter] = errMap.get(iter, {})
+            errMap[iter][step] = error
+            residual = float(re.findall("residual:\s*(%s)" % sciRegex, line)[0])
+            resMap[iter] = resMap.get(iter, {})
+            resMap[iter][step] = residual
 
-    return errMap, resMap, iterMap, maxIter, maxStep
+    print('timeMeasure: %g' % timeMeasure)
+    return errMap, resMap, iterMap, maxIter, maxStep, timeMeasure
 
 def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
     for iter in range(1, maxIter+1):
@@ -131,7 +139,7 @@ def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
 
     return errMap, resMap, iterMap
 
-def getResult(errMap, resMap, iterMap, maxIter, maxStep):
+def getResult(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure):
     errMap, resMap, iterMap = fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep)
 
     result = {}
@@ -140,6 +148,7 @@ def getResult(errMap, resMap, iterMap, maxIter, maxStep):
     result['iterMap'] = iterMap
     result['maxIter'] = maxIter
     result['maxStep'] = maxStep
+    result['timeMeasure'] = timeMeasure
 
     return result
 
@@ -174,25 +183,27 @@ def getErrorMapParaHybrid():
     iterMap = {}
     maxIter = 0
     maxStep = 0
+    timeMeasure = 0
 
     for file in glob.glob('*.log'):
-        grep2 = Popen(['grep', 'step:'], stdin=PIPE, stdout=PIPE)
-        grep1 = Popen(['grep', '-A1', 'Fine Sweep', '%s'%file], stdout=grep2.stdin)
+        grep2 = Popen(['grep', '\(step\|time Measurement\)'], stdin=PIPE, stdout=PIPE)
+        grep1 = Popen(['grep', '-A1', '\(Fine Sweep\|time Measurement\)', '%s'%file], stdout=grep2.stdin)
         output = grep2.communicate()[0]
         grep1.wait()
 
         lines = output.splitlines()
 
-        errMapLocal, resMapLocal, iterMapLocal, maxIterLocal, maxStepLocal = getErrAndResMap(lines)
+        errMapLocal, resMapLocal, iterMapLocal, maxIterLocal, maxStepLocal, t = parseLines(lines)
         mergeDictionaries(errMap, errMapLocal)
         mergeDictionaries(resMap, resMapLocal)
         iterMap.update(iterMapLocal)
 
         if maxIterLocal > maxIter: maxIter = maxIterLocal
         if maxStepLocal > maxStep: maxStep = maxStepLocal
+        if t > timeMeasure: timeMeasure = t
 
-
-    return getResult(errMap, resMap, iterMap, maxIter, maxStep)
+    print('parareal_hybrid')
+    return getResult(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure)
 
 def mergeDictionaries(dicA, dicB):
     for k in dicB.keys():
