@@ -62,7 +62,7 @@ namespace pfasst
         
         clock_t timeMeasure = clock();
         sdc.run();
-        CLOG(INFO, "Advec")  << "Time Measurement: " << double(clock() - timeMeasure)/CLOCKS_PER_SEC;
+        CLOG(INFO, "Advec")  << "time Measurement: " << double(clock() - timeMeasure)/CLOCKS_PER_SEC;
         
         fftw_cleanup();
 
