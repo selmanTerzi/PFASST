@@ -5,6 +5,7 @@ import pickle
 import glob
 import re
 
+styles = ['s-', '*-', '^-', 'o-']
 
 def plotError(output, style, label):
     errMap = output.errMap
@@ -46,69 +47,72 @@ def plotLastError(output, style, label):
 
 
 def plotComparison(plotType):
-    for file in glob.glob('*.dump'):
-        if plotType in ['Error', 'LastError']:
-            pyplot.yscale('log')
-            pyplot.ylabel('Fehler')
-            if plotType == 'LastError':
-                pyplot.xlabel('Iterationen')
-        if plotType in ['Error', 'Iter']:
-            pyplot.xlabel('Zeitschritt')
-            if plotType == 'Iter':
-                pyplot.ylabel('Iterationen')
-        with open(file, 'rb') as input:
-            dumpObj = pickle.load(input)
-        file = file.split('.')[0]
-        if plotType == 'Error':
-            plotError(dumpObj.output, 's-', file)
-        elif plotType == 'Iter':
-            plotIter(dumpObj, '^-', file)
-        elif plotType == 'LastError':
-            plotLastError(dumpObj.output, '^-', file)
+    i = 0
+    for type in ['sdc', 'parareal_mpi_nproc*', 'parareal_hybrid_nproc*', 'pfasst_nproc*']:
+        for file in glob.glob('%s.dump' % type):
+            if plotType in ['Error', 'LastError']:
+                pyplot.yscale('log')
+                pyplot.ylabel('Fehler')
+                if plotType == 'LastError':
+                    pyplot.xlabel('Iterationen')
+            if plotType in ['Error', 'Iter']:
+                pyplot.xlabel('Zeitschritt')
+                if plotType == 'Iter':
+                    pyplot.ylabel('Iterationen')
+            with open(file, 'rb') as input:
+                dumpObj = pickle.load(input)
+            file = file.split('.')[0]
+            if plotType == 'Error':
+                plotError(dumpObj.output, styles[i % len(styles)], file)
+            elif plotType == 'Iter':
+                plotIter(dumpObj, styles[i % len(styles)], file)
+            elif plotType == 'LastError':
+                plotLastError(dumpObj.output, styles[i % len(styles)], file)
+        i += 1
 
 
 def getSpeedUps(fileNames, sdcTime):
     speedUps = []
+    efficiency = []
     nprocs = []
     for file in glob.glob(fileNames):
         print(file)
-        nproc = int(re.findall("nproc(\d*)", file)[0])
         with open(file, 'rb') as input:
-            timeMeasure = pickle.load(input).output.timeMeasure
+            dumpObj = pickle.load(input)
+            timeMeasure = dumpObj.output.timeMeasure
         speedUp = sdcTime/timeMeasure
         print("timeMeasure: %g speedUp: %g " %(timeMeasure, speedUp))
         speedUps += [speedUp]
-        nprocs += [nproc]
-    return speedUps, nprocs
+        nprocs += [dumpObj.nproc]
+        efficiency += [speedUp/dumpObj.nproc]
+    return nprocs, speedUps, efficiency
 
 
-def plotSpeedUp():
+def plotSpeedUp(efficiency):
     with open('sdc.dump', 'rb') as input:
         dumpObj = pickle.load(input)
         input = dumpObj.input
         sdcTime = dumpObj.output.timeMeasure
 
-    speedUps, nprocs  = getSpeedUps('parareal_mpi_nproc*.dump', sdcTime)
-    if len(speedUps) > 0:
-        pyplot.plot(nprocs, speedUps, 's-', label='parareal_mpi')
-
-    speedUps, nprocs = getSpeedUps('parareal_hybrid_nproc*.dump', sdcTime)
-    if len(speedUps) > 0:
-        pyplot.plot(nprocs, speedUps, 's-', label='parareal_hybrid')
-
-    speedUps, nprocs = getSpeedUps('pfasst_nproc*.dump', sdcTime)
-    if len(speedUps) > 0:
-        pyplot.plot(nprocs, speedUps, 's-', label='pfasst')
+    i = 0
+    for type in ['parareal_mpi', 'parareal_hybrid', 'pfasst']:
+        nprocs, speedUps, efficiency  = getSpeedUps('%s_nproc*.dump' % type, sdcTime)
+        if len(nprocs) > 0:
+            if efficiency: plotData = efficiency
+            else: plotData = speedUps
+            pyplot.plot(nprocs, plotData, styles[i % len(styles)], label=type)
+            i+=1
 
     pyplot.title('num_nodes: %d num_nodes_coarse: %d spatial_dofs: %d spatial_dofs_coarse: %d abs_res_tol: %g' %
                  (input.num_nodes, input.num_nodes_coarse, input.spatial_dofs, input.spatial_dofs_coarse,
                   input.abs_res_tol))
 
     pyplot.xlabel('Anzahl Prozessoren')
-    pyplot.ylabel('Speedup')
+    if efficiency: pyplot.ylabel('Efficiency')
+    else: pyplot.ylabel('Speedup')
 
 pyplot.figure()
-plotSpeedUp()
+plotSpeedUp(True)
 pyplot.legend()
 
 pyplot.figure()
