@@ -3,9 +3,10 @@ __author__ = 's.terzi'
 import ProcessStarter
 import pickle
 
-class Input():
+
+class Input:
     dt = 0.01
-    num_steps = 75
+    num_steps = 80
     spatial_dofs = 128
     spatial_dofs_coarse = 64
     num_nodes = 5
@@ -14,6 +15,13 @@ class Input():
     num_crse_iter = 20
     num_fine_iter = 20
     num_iter = 20
+
+
+class DumpObj:
+    def __init__(self, input, output, nproc):
+        self.input = input
+        self.output = output
+        self.nproc = nproc
 
 #----------------------------------------------------------------------------------------------------------------------#
 #                                                   SDC                                                                #
@@ -53,9 +61,14 @@ def run_parareal_hybrid(input, nproc):
                                               input.num_nodes_coarse, input.num_iter)
 #----------------------------------------------------------------------------------------------------------------------#
 
-def dumpOutput(input, output, fileName):
-    dumpObj = {}
-    dumpObj['input'] = input
-    dumpObj['output'] = output
+#----------------------------------------------------------------------------------------------------------------------#
+#                                                PFASST                                                                #
+#----------------------------------------------------------------------------------------------------------------------#
+def run_pfasst(input, nproc):
+    return ProcessStarter.run_pfasst(nproc, input.num_steps, input.dt, input.spatial_dofs, input.spatial_dofs_coarse,
+                                     input.abs_res_tol, input.num_nodes, input.num_nodes_coarse, input.num_iter)
+#----------------------------------------------------------------------------------------------------------------------#
+
+def dumpOutput(input, output, fileName, nproc = 1):
     with open(fileName, 'wb') as outfile:
-        pickle.dump(dumpObj, outfile)
+        pickle.dump(DumpObj(input, output, nproc), outfile)

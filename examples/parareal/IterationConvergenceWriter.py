@@ -26,14 +26,13 @@ for input.dt in [1e-2, 1e-3]:
     print('dt: %f num_steps %d' % (input.dt, input.num_steps))
 
     output = cps.run_parareal_serial(input)
-    print(output)
-    maxIter = output['maxIter']
-    maxStep = output['maxStep']
+    maxIter = output.maxIter
+    maxStep = output.maxStep
     errIterList = []
     resIterList = []
     for i in range(1, maxIter+1):
-        errIterList += [output['errMap'][i][maxStep]]
-        resIterList += [output['resMap'][i][maxStep]]
+        errIterList += [output.errMap[i][maxStep]]
+        resIterList += [output.resMap[i][maxStep]]
     errPara += [errIterList]
     resPara += [resIterList]
     dtArr += [input.dt]

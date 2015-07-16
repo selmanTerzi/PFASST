@@ -6,7 +6,6 @@ import pickle
 input = cps.Input()
 
 tend = 0.2
-input.dt_initial = 0.1
 input.spatial_dofs = 128
 input.spatial_dofs_coarse = 64
 input.abs_res_tol = 1e-14
@@ -32,14 +31,12 @@ for num_nodes in [3, 5]:
         print('num_nodes: %d dt: %f num_steps: %d' % (input.num_nodes, input.dt, input.num_steps))
 
         output = cps.run_parareal_serial(input)
-        print(output)
 
-        errPara += [output['errMap'][output['maxIter']][output['maxStep']]]
+        errPara += [output.errMap[output.maxIter][output.maxStep]]
 
         output = cps.run_vanilla_sdc(input)
-        print(output)
 
-        errSDC += [output['errMap'][output['maxIter']][output['maxStep']]]
+        errSDC += [output.errMap[output.maxIter][output.maxStep]]
 
         dtArr += [input.dt]
 
