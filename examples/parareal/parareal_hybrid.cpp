@@ -8,10 +8,7 @@ using namespace std;
 #include <pfasst.hpp>
 #include <pfasst/config.hpp>
 #include <pfasst/logging.hpp>
-#include <pfasst/interfaces.hpp>
 #include <pfasst/quadrature.hpp>
-#include <pfasst/encap/encap_sweeper.hpp>
-#include <pfasst/encap/vector.hpp>
 #include <pfasst/mpi_communicator.hpp>
 
 #include "advection_diffusion_sweeper.hpp"
@@ -79,7 +76,6 @@ namespace pfasst
         para.set_options();
         
         fineSweeper->exact(fineSweeper->get_start_state(), 0.0);
-        coarseSweeper->exact(coarseSweeper->get_start_state(), 0.0);
         
         double timeMeasure = MPI_Wtime();
         para.run();

@@ -15,6 +15,7 @@ using namespace std;
 #include <pfasst/config.hpp>
 #include <pfasst/logging.hpp>
 #include <pfasst/encap/imex_sweeper.hpp>
+#include <pfasst/encap/vector.hpp>
 using pfasst::encap::Encapsulation;
 using pfasst::encap::as_vector;
 

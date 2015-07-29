@@ -26,8 +26,8 @@ namespace pfasst
         size_t nblocks = div - size_t(div) > 0 ? size_t(div) + 1 : size_t(div);
         nblocks = double(nblocks)/commSize - nblocks/commSize > 0 ? nblocks/commSize + 1 : nblocks/commSize;
         
-        shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
-        shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
+        shared_ptr<ISweeper<time>> fineSweeper = this->get_finest();
+        shared_ptr<ISweeper<time>> coarseSweeper = this->get_coarsest();
         
         MPI_Barrier(MPI_COMM_WORLD);
         
@@ -45,55 +45,93 @@ namespace pfasst
             
             size_t k = this->get_iteration();
             bool predict = k == 0;
-            
+          
+            auto u = factory_fine->create(solution);
+            auto err = factory_fine->create(solution);
+            auto advecSweeper = dynamic_pointer_cast<AdvectionDiffusionSweeper<>>(fineSweeper);
+            advecSweeper->exact(u, this->get_time()+this->get_time_step());
+          
             if(!predict) {
+              err->copy(u);
+              err->saxpy(-1.0, fineEncap->get_state(fineEncap->get_nodes().size()-1));
+              CLOG(INFO, "Parareal") << "Fine Error before interpolate: " << err->norm0();
+              
+              CLOG(INFO, "Parareal") << "Interpolate";
+              // compute parareal correction per interpolation
+              if(k == 1) {
+                transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, false);
+              }
+              else {
+                transferFunc->interpolateDiff(fineSweeper, coarseSweeper);
+              }
+              
+              err->copy(u);
+              err->saxpy(-1.0, fineEncap->get_state(fineEncap->get_nodes().size()-1));
+              CLOG(INFO, "Parareal") << "Fine Error after interpolate: " << err->norm0();
+              
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
               done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
+              
+              CLOG(INFO, "Parareal") << "Restrict";
+              transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
             }
             
             bool recvStartValue = !prec_done && (!firstRank || (nblock > 0 && predict));
             if(recvStartValue) {
+              CLOG(INFO, "Parareal") << "Receive";
+              
               int t = tag(k, nblock, commRank);
-              coarseEncap->recv(comm, t, true);
-              if(lastRank) {
-                transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
-                if(fineEncap->get_quadrature()->left_is_node()) {
-                  fineEncap->get_state(0)->copy(fineEncap->get_start_state());
-                  fineEncap->reevaluate(true);
+              
+              if(predict)
+              {
+                if(firstRank) {
+                  CLOG(INFO, "Parareal") << "recv Fine Initial state";
+                  fineEncap->recv(comm, t, true);
+                }
+                else {
+                  CLOG(INFO, "Parareal") << "recv Coarse Initial state";
+                  coarseEncap->recv(comm, t, true);
                 }
               }
-              if(!predict && !firstRank)
-              {
+              else {
+                CLOG(INFO, "Parareal") << "recv Coarse update state";
+                coarseEncap->recv(comm, t, true);
+                CLOG(INFO, "Parareal") << "Reevaluate coarse initial";
+                coarseEncap->reevaluate(true);
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
               }
             }
             
-            bool doCoarse = predict || (!firstRank && !lastRank && recvStartValue);
-            if(doCoarse) {
-              do_coarse(predict);
-              CLOG(INFO, "Parareal") << "Interpolate";
-              transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
+            if(predict) {
+              if(firstRank) {
+                transferFunc->restrict_initial(coarseSweeper, fineSweeper);
+                coarseEncap->get_state(0)->copy(coarseEncap->get_start_state());
+              }
+              else {
+                transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
+              }
+              fineEncap->get_state(0)->copy(fineEncap->get_start_state());
+              fineEncap->spread();
+              coarseEncap->spread();
               coarseEncap->save(false);
             }
+            
+            do_coarse(predict);
             
             // send new initial value to next processor
             if(!lastRank && hasSuccessor) {
               int t = tag(k, nblock,commRank+1);
-              if(predict) {
-                coarseEncap->send(comm, t, true);
-              }
-              else {
-                transferFunc->restrict(coarseState, fineEncap->get_end_state());
-                coarseState->send(comm, t, true);
-              }
+              CLOG(INFO, "Parareal") << "Send coarse end_state";
+              coarseEncap->send(comm, t, true);
               if(!predict) {
                 comm->status->set_converged(done);
                 comm->status->send(t);
               }
             }
+            
           } // loop over parareal iterations
             
           comm->status->clear();
@@ -101,9 +139,8 @@ namespace pfasst
           done = false;
           
           if(lastRank && nblock < nblocks - 1 && hasSuccessor) {
-            CLOG(INFO, "Parareal") << "Send Restricted Fine end_state to next block";
-            transferFunc->restrict(coarseState, fineEncap->get_end_state());
-            coarseState->send(comm, tag(0, nblock+1, 0), true);
+            CLOG(INFO, "Parareal") << "Send Fine end_state to next block";
+            fineEncap->send(comm, tag(0, nblock+1, 0), true);
           }
         } // loop over time blocks
       }

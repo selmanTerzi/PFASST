@@ -13,6 +13,7 @@ using namespace std;
 #include <pfasst/encap/vector.hpp>
 #include <pfasst/encap/poly_interp.hpp>
 #include <pfasst/encap/encap_sweeper.hpp>
+#include <pfasst/encap/vector.hpp>
 
 #include "fft.hpp"
 
@@ -81,31 +82,28 @@ namespace pfasst
             size_t nfine = fine_nodes.size();
             size_t ncrse = crse_nodes.size();
             
-            auto crse_factory = crse.get_factory();
             auto fine_factory = fine.get_factory();
 
             vector<shared_ptr<Encapsulation>> diff(ncrse), fine_state(nfine);
-            shared_ptr<Encapsulation> diffCoarse = crse_factory->create(encap::EncapType::solution);
+            shared_ptr<Encapsulation> coarseState = fine_factory->create(encap::EncapType::solution);
             
             for (size_t m = 0; m < nfine; m++) { fine_state[m] = fine.get_state(m); }
             
-            CLOG(INFO, "Parareal") << "Current state:";
-            for(size_t m=0; m < ncrse; m++) CLOG(INFO, "Parareal") << (vector<double>)(encap::as_vector<double>(crse.get_state(m)));
-            CLOG(INFO, "Parareal") << "Saved state:";
-            for(size_t m=0; m < ncrse; m++) CLOG(INFO, "Parareal") << (vector<double>)(encap::as_vector<double>(crse.get_saved_state(m)));
+            int trat = (int(nfine) - 1) / (int(ncrse) - 1);
             
             for (size_t m = 0; m < ncrse; m++) {
-              diffCoarse->copy(crse.get_state(m));
-              diffCoarse->saxpy(-1.0, crse.get_saved_state(m));
-              
-              CLOG(INFO, "Parareal") << "Diff-Norm: " << diffCoarse->norm0();
-              
               diff[m] = fine_factory->create(encap::EncapType::solution);
-              this->interpolate(diff[m], diffCoarse);
+              this->interpolate(coarseState, crse.get_state(m));
+              diff[m]->copy(fine_state[trat*m]);
+              diff[m]->saxpy(-1.0, coarseState);
+              CLOG(INFO, "Parareal") << "Diff-Norm: " << diff[m]->norm0();
+              
             }
             
+            this->interpolate(fine.get_start_state(), crse.get_start_state());
+            
             // interpolate the difference of last and current coarse solution to fine nodes
-            fine.get_state(0)->mat_apply(fine_state, 1.0, this->tmat, diff, false);
+            fine.get_state(0)->mat_apply(fine_state, -1.0, this->tmat, diff, false);
             
             fine.reevaluate();
           }
