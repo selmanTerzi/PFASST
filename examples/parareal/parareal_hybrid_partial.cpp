@@ -13,7 +13,7 @@ using namespace std;
 
 #include "advection_diffusion_sweeper.hpp"
 #include "spectral_transfer_1d.hpp"
-#include "parareal_hybrid_full.hpp"
+#include "parareal_hybrid_partial.hpp"
 
 namespace pfasst 
 {
@@ -54,7 +54,7 @@ namespace pfasst
       void run_hybrid_parareal()
       {
         MPICommunicator comm(MPI_COMM_WORLD);
-        FullHybridParareal<> para;
+        PartialHybridParareal<> para;
         
         const size_t num_nodes_fine = config::get_value<size_t>("num_nodes",5);
         const size_t num_nodes_coarse = config::get_value<size_t>("num_nodes_coarse",3);

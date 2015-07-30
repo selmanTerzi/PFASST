@@ -17,6 +17,7 @@ if(${pfasst_WITH_MPI})
     set(parareal_mpi_examples
         parareal_classic
         parareal_hybrid_full
+        parareal_hybrid_partial
     )
     set(all_parareal_examples ${parareal_examples} ${parareal_mpi_examples})
 else()

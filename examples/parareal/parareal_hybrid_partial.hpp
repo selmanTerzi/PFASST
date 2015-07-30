@@ -1,5 +1,5 @@
-#ifndef _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_
-#define _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_
+#ifndef _PFASST__CONTROLLER__PARAREAL_HYBRID_PARTIAL_HPP_
+#define _PFASST__CONTROLLER__PARAREAL_HYBRID_PARTIAL_HPP_
 
 #include "pfasst/controller/interface.hpp"
 #include "pfasst/encap/encap_sweeper.hpp"
@@ -25,7 +25,7 @@ namespace pfasst
       * @ingroup Controllers
       */
       template<typename time = time_precision>
-      class FullHybridParareal
+      class PartialHybridParareal
         : public Controller<time>
       {
         // MPI-variables
@@ -48,6 +48,9 @@ namespace pfasst
           
           virtual void do_coarse(bool predict);
           
+          void sendCorrection(shared_ptr<Encapsulation<time>> crsedelta,
+                              shared_ptr<Encapsulation<time>> coarseState, int tag);
+          
         public:
           /**
           * Run hybrid parareal.
@@ -63,6 +66,6 @@ namespace pfasst
   }  // ::examples
 }  // ::pfasst
 
-#include "../examples/parareal/parareal_hybrid_full_impl.hpp"
+#include "../examples/parareal/parareal_hybrid_partial_impl.hpp"
 
-#endif  // _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_
+#endif  // _PFASST__CONTROLLER__PARAREAL_HYBRID_PARTIAL_HPP_

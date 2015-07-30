@@ -7,7 +7,7 @@ namespace pfasst
     namespace parareal
     {
       template<typename time>
-      void HybridParareal<time>::run()
+      void FullHybridParareal<time>::run()
       {
         if(!comm || commSize == 1) {
           CLOG(ERROR, "Parareal") << "Number of processors must be greater than 1";
@@ -72,6 +72,7 @@ namespace pfasst
               fineEncap->sweep();
               fineEncap->post_sweep();
               done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
+              if(done) CLOG(INFO, "Parareal") << "Done!";
               
               CLOG(INFO, "Parareal") << "Restrict";
               transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
@@ -144,7 +145,7 @@ namespace pfasst
       }
       
       template<typename time>
-      void HybridParareal<time>::do_coarse(bool predict)
+      void FullHybridParareal<time>::do_coarse(bool predict)
       {
         if(predict) {
           CLOG(INFO, "Parareal") << "Coarse Predict";
@@ -159,13 +160,13 @@ namespace pfasst
       }
       
       template<typename time>
-      int HybridParareal<time>::tag(const size_t k, const size_t j, int commRank) 
+      int FullHybridParareal<time>::tag(const size_t k, const size_t j, int commRank) 
       {
         return k * 10000 + commSize * j + commRank;
       }
      
       template<typename time>
-      void HybridParareal<time>::set_comm(ICommunicator* comm)
+      void FullHybridParareal<time>::set_comm(ICommunicator* comm)
       {
         this->comm = comm;
         this->commRank = comm->rank();
@@ -173,7 +174,7 @@ namespace pfasst
       }
       
       template<typename time>
-      void HybridParareal<time>::setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
+      void FullHybridParareal<time>::setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
                                        shared_ptr<SpectralTransfer1D<>> transferFunc)
       {
         this->abs_res_tol = abs_res_tol;
