@@ -1,5 +1,5 @@
-#ifndef _PFASST__CONTROLLER__PARAREAL_HYBRID_HPP_
-#define _PFASST__CONTROLLER__PARAREAL_HYBRID_HPP_
+#ifndef _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_
+#define _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_
 
 #include "pfasst/controller/interface.hpp"
 #include "pfasst/encap/encap_sweeper.hpp"
@@ -63,6 +63,6 @@ namespace pfasst
   }  // ::examples
 }  // ::pfasst
 
-#include "../examples/parareal/parareal_hybrid_impl.hpp"
+#include "../examples/parareal/parareal_hybrid_full_impl.hpp"
 
-#endif  // _PFASST__CONTROLLER__PARAREAL_HYBRID_HPP_
+#endif  // _PFASST__CONTROLLER__PARAREAL_HYBRID_FULL_HPP_

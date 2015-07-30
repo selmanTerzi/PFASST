@@ -1,5 +1,4 @@
-#include "../examples/parareal/parareal_hybrid.hpp"
-
+#include "parareal_hybrid_full.hpp"
 
 namespace pfasst
 {
@@ -131,7 +130,6 @@ namespace pfasst
                 comm->status->send(t);
               }
             }
-            
           } // loop over parareal iterations
             
           comm->status->clear();

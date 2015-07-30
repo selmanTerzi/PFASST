@@ -11,7 +11,6 @@ buildFolder = "/home0/s.terzi/project/PFASST/build_mpi/"
 timeString = "time Measurement"
 errParaString = "ErrorParareal"
 
-
 class Result:
     def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure):
         self.errMap = errMap
@@ -21,51 +20,27 @@ class Result:
         self.maxStep = maxStep
         self.timeMeasure = timeMeasure
 
+def run_parareal_classic(nproc=2,
+                         step=5,
+                         dt=0.01,
+                         spatial_dofs=4096,
+                         spatial_dofs_coarse=4096,
+                         abs_res_tol=1e-12,
+                         num_nodes=3,
+                         num_nodes_coarse=3,
+                         num_crse_iter=20,
+                         num_fine_iter=20,
+                         num_iter=20):
+    prog = 'parareal_classic'
+    pargs = []
+    if nproc == 1:
+        prog += '_serial'
+    else:
+        pargs = ['mpirun', '-np', '%d' % nproc]
 
-def run_parareal_serial(step=5,
-                        dt=0.01,
-                        spatial_dofs=4096,
-                        spatial_dofs_coarse=4096,
-                        abs_res_tol=1e-12,
-                        num_nodes=3,
-                        num_nodes_coarse=3,
-                        num_crse_iter=20,
-                        num_fine_iter=20,
-                        num_iter=20):
+
     grep = Popen(['grep', '\(%s\|%s\)' % (errParaString, timeString)], stdin=PIPE, stdout=PIPE)
-    para = Popen(['%s/examples/parareal/parareal_serial' % buildFolder,
-                  '--dt', '%f' % dt,
-                  '--num_steps', '%d' % step,
-                  '--spatial_dofs', '%d' % spatial_dofs,
-                  '--spatial_dofs_coarse', '%d' % spatial_dofs_coarse,
-                  '--num_nodes', '%d' % num_nodes,
-                  '--num_nodes_coarse', '%d' % num_nodes_coarse,
-                  '--abs_res_tol', '%e' % abs_res_tol,
-                  '--num_crse_iter', '%d' % num_crse_iter,
-                  '--num_fine_iter', '%d' % num_fine_iter,
-                  '--num_par_iter', '%d' % num_iter],
-                 stdout=grep.stdin)
-    output = grep.communicate()[0]
-    para.wait()
-
-    return getResultSDC(output)
-
-
-def run_parareal_mpi(nproc=2,
-                     step=5,
-                     dt=0.01,
-                     spatial_dofs=4096,
-                     spatial_dofs_coarse=4096,
-                     abs_res_tol=1e-12,
-                     num_nodes=3,
-                     num_nodes_coarse=3,
-                     num_crse_iter=20,
-                     num_fine_iter=20,
-                     num_iter=20):
-    grep = Popen(['grep', '\(%s\|%s\)' % (errParaString, timeString)], stdin=PIPE, stdout=PIPE)
-    para = Popen(['mpirun',
-                  '-np', '%d' % nproc,
-                  '%s/examples/parareal/parareal_mpi' % buildFolder,
+    para = Popen(pargs + ['%s/examples/parareal/%s' % (buildFolder, prog),
                   '--dt', '%f' % dt,
                   '--tend', '%f' % (dt * step),
                   '--spatial_dofs', '%d' % spatial_dofs,
@@ -80,7 +55,7 @@ def run_parareal_mpi(nproc=2,
     output = grep.communicate()[0]
     para.wait()
 
-    print('parareal_mpi')
+    print('parareal_classic_nproc%s' % nproc)
     return getResultSDC(output)
 
 
@@ -129,19 +104,19 @@ def run_pfasst(nproc=2,
     output = grep.communicate()[0]
     pfasst.wait()
 
-    print('pfasst')
+    print('pfasst_nproc%s' % nproc)
     return getResultSDC(output)
 
 
-def run_parareal_hybrid(nproc=2,
-                        step=5,
-                        dt=0.01,
-                        spatial_dofs=4096,
-                        spatial_dofs_coarse=4096,
-                        abs_res_tol=1e-12,
-                        num_nodes=3,
-                        num_nodes_coarse=3,
-                        num_iter=20):
+def run_parareal_hybrid_full(nproc=2,
+                            step=5,
+                            dt=0.01,
+                            spatial_dofs=4096,
+                            spatial_dofs_coarse=4096,
+                            abs_res_tol=1e-12,
+                            num_nodes=3,
+                            num_nodes_coarse=3,
+                            num_iter=20):
 
     call("rm -rf *.log", shell=True)
     with open(os.devnull, "w") as f:
@@ -155,7 +130,8 @@ def run_parareal_hybrid(nproc=2,
           '--abs_res_tol', '%e' % abs_res_tol,
           '--num_iter', '%d' % num_iter], stdout=f)
 
-    return getErrorMapParaHybrid()
+    print('parareal_hybrid_full_nproc%s' % nproc)
+    return getResultParaHybrid()
 
 
 def getResultSDC(output):
@@ -212,7 +188,7 @@ def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
     return errMap, resMap
 
 
-def getErrorMapParaHybrid():
+def getResultParaHybrid():
 
     errMap = {}
     resMap = {}
@@ -221,7 +197,6 @@ def getErrorMapParaHybrid():
     maxStep = 0
     timeMeasure = 0
 
-    print('parareal_hybrid')
     for file in glob.glob('*.log'):
         grep2 = Popen(['grep', '\(step:\|%s\)'%timeString], stdin=PIPE, stdout=PIPE)
         grep1 = Popen(['grep', '-A1', '\(Fine Sweep\|%s\)' % timeString, '%s' % file], stdout=grep2.stdin)

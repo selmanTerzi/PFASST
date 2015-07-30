@@ -13,7 +13,7 @@ using namespace std;
 
 #include "advection_diffusion_sweeper.hpp"
 #include "spectral_transfer_1d.hpp"
-#include "parareal_hybrid.hpp"
+#include "parareal_hybrid_full.hpp"
 
 namespace pfasst 
 {
