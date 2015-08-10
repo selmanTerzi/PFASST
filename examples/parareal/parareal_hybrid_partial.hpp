@@ -40,6 +40,7 @@ namespace pfasst
         EncapSweeper<time>* fineEncap; // coarse level sweeper 
         
         shared_ptr<SpectralTransfer1D<>> transferFunc; // transfer function
+        shared_ptr<Encapsulation<>> coarseState;
         
         double abs_res_tol; // residual tolerance for break condition
         
@@ -48,8 +49,7 @@ namespace pfasst
           
           virtual void do_coarse(bool predict);
           
-          void sendCorrection(shared_ptr<Encapsulation<time>> crsedelta,
-                              shared_ptr<Encapsulation<time>> coarseState, int tag);
+          void sendCorrection(int tag);
           
         public:
           /**

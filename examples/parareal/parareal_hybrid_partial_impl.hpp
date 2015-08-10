@@ -16,20 +16,22 @@ namespace pfasst
           exit(-1);
         }
         
-        auto coarseState = factory_crse->create(solution);
+        // variables for the residium calculation via the difference of the current and last iterations fine end state
+        // auto finedelta = factory_fine->create(solution);
+        // double res; // residual (difference of last and current iteration of end_state)
         
-        auto finedelta = factory_fine->create(solution);
-        double res; // residual (difference of last and current iteration of end_state)
-        
+        bool firstRank = commRank == 0;
+        bool lastRank = commRank == commSize -1;
         bool prec_done = false; // boolean for checking if the precedessor is done
         bool done = false; // boolean for breaking next iteration if converged
         bool recvStartValue = false; // boolean for determining if a new startValue must be received
         
-        CLOG(INFO, "Parareal") << "tend: " << this->get_end_time() 
-                               << " dt: " << this->get_time_step()
-                               << " num_iter: " << this->get_max_iterations();
-        
-        size_t nblocks = this->get_end_time()/this->get_time_step()/this->commSize+1;
+        double div = this->get_end_time()/this->get_time_step();
+        if(div - size_t(div) > 0) {
+          CLOG(INFO, "Controller") << "invalid time step: dt must be a divisor of tend";
+          throw ValueError("invalid time step: dt must be a divisor of tend");
+        }
+        size_t nblocks = div/commSize - size_t(div)/commSize > 0 ? size_t(div)/commSize + 1 : size_t(div)/commSize;
         
         shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
         shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
@@ -42,8 +44,8 @@ namespace pfasst
           CLOG(INFO, "Parareal") << "Time: " << this->get_time();
           if(this->get_time() >= this->get_end_time()) break;
           
-          bool hasSuccessor = commRank < commSize - 1 &&
-                              this->get_time() + this->get_time_step() <= this->get_end_time();
+          bool initial = firstRank && nblock == 0;
+          bool hasSuccessor = this->get_time() + this->get_time_step() < this->get_end_time();
                               
           CLOG(INFO, "Parareal") << "hasSuccessor: " << hasSuccessor;
           for(this->set_iteration(0);
@@ -51,63 +53,98 @@ namespace pfasst
               this->advance_iteration()) { // loop over parareal iterations
             
             size_t k = this->get_iteration();
-          
             bool predict = k == 0;
             
             if(!predict) {
               if(k == 1) {
-                transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
-              }
-              else if(recvStartValue) {
-                transferFunc->interpolate(fineEncap->get_state(0), coarseEncap->get_state(0));
-                fineEncap->reevaluate(true);
+              	CLOG(INFO, "Parareal") << "Interpolate in first iteration";
+                transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, false);
               }
               
-              finedelta->copy(fineEncap->get_end_state());
+              // set finedelta to last fine end state for the calculation of the difference
+              // finedelta->copy(fineEncap->get_end_state());
               
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
               
-              // calc residium for break condition
-//               finedelta->saxpy(-1.0, fineEncap->get_end_state());
-//               res = finedelta->norm0();
-//               done = res < abs_res_tol;
-//               CLOG(INFO, "Parareal") << "Residual: " << res;
+              // TODO: Make flag to choose which break condition shall be used
+              // calc residium for break condition (difference of current and last fine end state):
+              // finedelta->saxpy(-1.0, fineEncap->get_end_state());
+              // res = finedelta->norm0();
+              // done = res < abs_res_tol;
+              // CLOG(INFO, "Parareal") << "Residual: " << res;
               
-              done = commRank == 0 ? fineEncap->converged() : fineEncap->converged() && prec_done;
+              done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
               if(done) CLOG(INFO, "Parareal") << "Done!";
-              
-              coarseEncap->save(false);
-              transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
             }
             
-            
-            recvStartValue = !prec_done && (commRank > 0 || (nblock > 0 && predict));
+            recvStartValue = !prec_done && (!firstRank || (nblock > 0 && predict));
             // get new initial value for coarse sweep
             if(recvStartValue) {
               int t = tag(k, nblock, commRank);
-              coarseEncap->recv(comm, t, true);
               
-              if(!predict && commRank > 0)
-              {
+              CLOG(INFO, "Parareal") << "recv coarse initial state";
+              coarseEncap->recv(comm, t, true);
+              CLOG(INFO, "Parareal") << "interpolate initial state";         
+              transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
+              if(fineEncap->get_quadrature()->left_is_node()) {
+                fineEncap->get_state(0)->copy(fineEncap->get_start_state());
+              }
+              
+              if(!predict) {
+                CLOG(INFO, "Parareal") << "reevaluate coarse initial";
+                coarseEncap->reevaluate(true);
+                CLOG(INFO, "Parareal") << "reevaluate fine initial";
+                fineEncap->reevaluate(true);
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
               }
             }
             
-            if(predict || hasSuccessor) {
+            if(predict) {
+              if(initial) {
+              	CLOG(INFO, "Parareal") << "restrict initial state";
+              	transferFunc->restrict_initial(coarseSweeper, fineSweeper);
+              	if(coarseEncap->get_quadrature()->left_is_node()) {
+              	  coarseEncap->get_state(0)->copy(coarseEncap->get_start_state());
+              	}
+              }
+              if(fineEncap->get_quadrature()->left_is_node()) {
+                fineEncap->get_state(0)->copy(fineEncap->get_start_state());
+              }
+              CLOG(INFO, "Parareal") << "fine spread";
+              fineEncap->spread();
+              CLOG(INFO, "Parareal") << "coarse spread";
+              coarseEncap->spread();
+              coarseEncap->save(false);
+            }
+            
+            bool doCoarse = predict || (recvStartValue && !firstRank && !lastRank && hasSuccessor);
+            if(doCoarse) {
+              coarseEncap->save(false);
               do_coarse(predict);
             }
             
             // send new initial value to next processor
-            if(hasSuccessor) {
+            if(!lastRank && hasSuccessor) {
               int t = tag(k, nblock, commRank + 1);
-              sendCorrection(coarseState, t);
-              
-              if(!predict) {
-                comm->status->set_converged(done);
-                comm->status->send(t);
+              if(predict) {
+                CLOG(INFO, "Parareal") << "Send coarse end_state";
+                coarseEncap->send(comm, t, true);
+              }
+              else {
+              	if(doCoarse) {
+                  CLOG(INFO, "Parareal") << "Send Correction";
+              	  sendCorrection(t);
+              	}
+              	else {
+                  CLOG(INFO, "Parareal") << "Send restricted fine end_state";
+                  transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
+                  coarseEncap->send(comm, t, true);
+              	}
+              	comm->status->set_converged(done);
+                comm->status->send(t);   
               }
             }
           } // loop over parareal iterations
@@ -116,18 +153,18 @@ namespace pfasst
           prec_done = false;
           done = false;
           
-          if(nblock < nblocks - 1 && !hasSuccessor) {
-            transferFunc->restrict(coarseState, fineEncap->get_end_state());
-            coarseState->send(comm, tag(0, nblock+1, 0), true);
+          if(lastRank && nblock < nblocks - 1 && hasSuccessor) {
+            CLOG(INFO, "Parareal") << "Send restricted fine end_state to next block";
+            transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
+            coarseEncap->send(comm, tag(0, nblock+1, 0), true);
           }
         } // loop over time blocks
       }
       
       template<typename time>
-      void PartialHybridParareal<time>::do_coarse(shared_ptr<Encapsulation<time>> end_state, 
-                                           bool predict) 
+      void PartialHybridParareal<time>::do_coarse(bool predict) 
       {
-        if(predict) {
+      	if(predict) {
           CLOG(INFO, "Parareal") << "Coarse Predict";
           coarseEncap->predict(true);
           coarseEncap->post_predict();
@@ -137,12 +174,10 @@ namespace pfasst
           coarseEncap->sweep();
           coarseEncap->post_sweep();
         }
-        
-        end_state->copy(coarseEncap->get_end_state());
       }
       
       template<typename time>
-      void PartialHybridParareal<time>::sendCorrection(shared_ptr<Encapsulation<time>> coarseState, int tag)
+      void PartialHybridParareal<time>::sendCorrection(int tag)
       {
         // Calculate parareal-correction
         transferFunc->restrict(coarseState, fineEncap->get_end_state());
@@ -174,6 +209,7 @@ namespace pfasst
         
         this->factory_fine = make_shared<VectorFactory<time>>(ndofsfine);
         this->factory_crse = make_shared<VectorFactory<time>>(ndofscoarse);
+        this->coarseState = factory_crse->create(solution);
         
         this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
         this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());

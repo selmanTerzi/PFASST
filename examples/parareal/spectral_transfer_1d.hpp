@@ -63,50 +63,6 @@ namespace pfasst
 
             this->fft.backward(fine);
           }
-          
-          // interpolates the difference of coarse solution and last fine solution at coarse nodes
-          // to the fine nodes
-          void interpolateDiff(shared_ptr<ISweeper<time>> dst,
-                               shared_ptr<const ISweeper<time>> src)
-          {
-            auto& fine = encap::as_encap_sweeper(dst);
-            auto& crse = encap::as_encap_sweeper(src);
-
-            if (this->tmat.rows() == 0) {
-              this->tmat = pfasst::quadrature::compute_interp<time>(fine.get_nodes(), crse.get_nodes());
-            }
-            
-            auto const crse_nodes = crse.get_nodes();
-            auto const fine_nodes = fine.get_nodes();
-            
-            size_t nfine = fine_nodes.size();
-            size_t ncrse = crse_nodes.size();
-            
-            auto fine_factory = fine.get_factory();
-
-            vector<shared_ptr<Encapsulation>> diff(ncrse), fine_state(nfine);
-            shared_ptr<Encapsulation> coarseState = fine_factory->create(encap::EncapType::solution);
-            
-            for (size_t m = 0; m < nfine; m++) { fine_state[m] = fine.get_state(m); }
-            
-            int trat = (int(nfine) - 1) / (int(ncrse) - 1);
-            
-            for (size_t m = 0; m < ncrse; m++) {
-              diff[m] = fine_factory->create(encap::EncapType::solution);
-              this->interpolate(coarseState, crse.get_state(m));
-              diff[m]->copy(fine_state[trat*m]);
-              diff[m]->saxpy(-1.0, coarseState);
-              CLOG(INFO, "Parareal") << "Diff-Norm: " << diff[m]->norm0();
-              
-            }
-            
-            this->interpolate(fine.get_start_state(), crse.get_start_state());
-            
-            // interpolate the difference of last and current coarse solution to fine nodes
-            fine.get_state(0)->mat_apply(fine_state, -1.0, this->tmat, diff, false);
-            
-            fine.reevaluate();
-          }
 
           void restrict(shared_ptr<Encapsulation> dst, shared_ptr<const Encapsulation> src) override
           {
@@ -120,7 +76,7 @@ namespace pfasst
             }
           }
       };
-    }  // ::pfasst::examples::advection_diffusion
+    }  // ::pfasst::examples::parareal
   }  // ::pfasst::examples
 }  // ::pfasst
 
