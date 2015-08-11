@@ -3,10 +3,10 @@ __author__ = 's.terzi'
 from matplotlib import pyplot
 import pickle
 import glob
-from ConvenientProcessStarter import RunTypes
+from ProcessStarter import RunTypes
 
 styles = ['s-', '*-', '^-', 'o-', '+-']
-
+stylecounter = 0
 
 class PlotTypes:
     AllIterationResiduals = 1
@@ -18,9 +18,9 @@ class PlotTypes:
     Efficiency = 7
 
 
-def plotLastIterationError(output, style, label):
-    errMap = output.errMap
-    pyplot.plot(list(errMap[output.maxIter].values()), style, label=label)
+def plotLastIterationError(dumpObj, style, label):
+    errMap = dumpObj.output.errMap
+    pyplot.plot(list(errMap[dumpObj.output.maxIter].values()), style, label=label)
 
 
 def plotAllIterations(data, style, label):
@@ -58,103 +58,108 @@ def plotIters(dumpObj, style, label):
         pyplot.plot(iterValues, style, label=label)
 
 
-def plotLastStepError(output, style, label):
-    errMap = output.errMap
-    maxIter = output.maxIter
-    maxStep = output.maxStep
+def plotLastStepError(dumpObj, style, label):
+    errMap = dumpObj.output.errMap
+    maxIter = dumpObj.output.maxIter
+    maxStep = dumpObj.output.maxStep
     err = []
     for i in range(1, maxIter+1):
         err += [errMap[i][maxStep]]
     pyplot.plot(list(range(1, maxIter+1)), err, style, label=label)
 
 
-def getRegex(data):
-    np = '*'
-    if data != 0:
-        if isinstance(data, list) > 0:
-            np = "["
-            for i in data:
-                np += "%d" % i
-            np += "]"
-        else:
-            np = "%d" % data
-    return np
-
-
-def processPlotDataNames(plotData, nprocs):
+def processPlotDataName(plotData, nproc):
     plotDataNames = []
-    np = getRegex(nprocs)
+    if nproc == 0:
+        nproc = '*'
+    else:
+        nproc = '%d' % nproc
     for pdata in plotData:
-        if pdata in [RunTypes.SDC_Fine, RunTypes.SDC_Coarse]:
-            plotDataNames += ['%s.dump' % pdata]
-        else:
-            plotDataNames += ['%s_nproc%s.dump' % (pdata,np)]
+        plotDataNames += ['%s_nproc%s.dump' % (pdata, nproc)]
     return plotDataNames
 
+plotDict = {PlotTypes.LastIterationError: plotLastIterationError,
+            PlotTypes.Iter: plotIters,
+            PlotTypes.LastStepError: plotLastStepError,
+            PlotTypes.AllIterationErrors: plotAllIterations,
+            PlotTypes.AllIterationResiduals: plotAllIterations}
 
-def plotComparison(plotType, plotData, nprocs = 0):
-    i = 0
-    for fname in processPlotDataNames(plotData, nprocs):
-        for file in glob.glob(fname):
-            if plotType in [PlotTypes.LastStepError,
-                            PlotTypes.LastIterationError,
-                            PlotTypes.AllIterationErrors,
-                            PlotTypes.AllIterationResiduals]:
-                pyplot.yscale('log')
-                if plotType == PlotTypes.AllIterationResiduals:
-                    pyplot.ylabel('Residuum')
-                else:
-                    pyplot.ylabel('Fehler')
-                if plotType == PlotTypes.LastIterationError:
-                    pyplot.xlabel('Iterationen')
-                else:
-                    pyplot.xlabel('Zeitschritt')
-            elif plotType == PlotTypes.Iter:
-                pyplot.xlabel('Zeitschritt')
-                pyplot.ylabel('Iterationen')
 
-            with open(file, 'rb') as input:
-                dumpObj = pickle.load(input)
-            file = file.split('.')[0]
-            if plotType == PlotTypes.LastIterationError:
-                plotLastIterationError(dumpObj.output, styles[i % len(styles)], file)
-            elif plotType == PlotTypes.Iter:
-                plotIters(dumpObj, styles[i % len(styles)], file)
-            elif plotType == PlotTypes.LastStepError:
-                plotLastStepError(dumpObj.output, styles[i % len(styles)], file)
-            elif plotType == PlotTypes.AllIterationErrors:
-                plotAllIterations(dumpObj.output.errMap, styles[i % len(styles)], file)
-            elif plotType == PlotTypes.AllIterationResiduals:
-                plotAllIterations(dumpObj.output.resMap, styles[i % len(styles)], file)
-        i += 1
+def plotComparison(plotType, plotData, nprocs = [0]):
+    sdcTypes = [RunTypes.SDC_Coarse, RunTypes.SDC_Fine]
+    for nproc in nprocs:
+        for fname in processPlotDataName(set(plotData).difference(sdcTypes), nproc):
+            for f in glob.glob(fname):
+                plotFile(plotType, f)
+    for pdata in set(plotData).intersection(sdcTypes):
+        plotFile(plotType, pdata + '.dump')
 
+
+def plotFile(plotType, fname):
+    global stylecounter
+    print(fname)
+    if plotType in [PlotTypes.LastStepError,
+                    PlotTypes.LastIterationError,
+                    PlotTypes.AllIterationErrors,
+                    PlotTypes.AllIterationResiduals,
+                    PlotTypes.Iter]:
+        if plotType != PlotTypes.Iter:
+            pyplot.yscale('log')
+        if plotType == PlotTypes.AllIterationResiduals:
+            pyplot.ylabel('Residuum')
+        elif plotType == PlotTypes.Iter:
+            pyplot.ylabel('Iterationen')
+        else:
+            pyplot.ylabel('Fehler')
+    if plotType == PlotTypes.LastStepError:
+        pyplot.xlabel('Iterationen')
+    else:
+        pyplot.xlabel('Zeitschritt')
+
+    with open(fname, 'rb') as input:
+        dumpObj = pickle.load(input)
+
+    fname = fname.split('.')[0]
+    data = dumpObj
+    if plotType == PlotTypes.AllIterationErrors:
+        data = data.output.errMap
+    elif plotType == PlotTypes.AllIterationResiduals:
+        data = data.output.resMap
+    plotDict[plotType](data, styles[stylecounter % len(styles)], fname)
+    stylecounter +=1
 
 def getSpeedUps(fileNames, sdcTime):
-    speedUps = []
-    efficiency = []
-    nprocs = []
+    data = {}
     for file in glob.glob(fileNames):
         print(file)
         with open(file, 'rb') as input:
             dumpObj = pickle.load(input)
             timeMeasure = dumpObj.output.timeMeasure
         speedUp = sdcTime/timeMeasure
+        efficiency = speedUp/dumpObj.nproc
         print("timeMeasure: %g speedUp: %g " %(timeMeasure, speedUp))
-        speedUps += [speedUp]
-        nprocs += [dumpObj.nproc]
-        efficiency += [speedUp/dumpObj.nproc]
+        data[dumpObj.nproc] = [speedUp, efficiency]
+        sortedData = sorted(data.items())
+        nprocs = []
+        speedUps = []
+        efficiency = []
+        for t in sortedData:
+            print(t)
+            nprocs += [t[0]]
+            speedUps += [t[1][0]]
+            efficiency += [t[1][1]]
     return nprocs, speedUps, efficiency
 
 
 def plotSpeedUp(plotEfficiency, plotData):
-    print(plotEfficiency)
     with open('%s.dump' % RunTypes.SDC_Fine, 'rb') as input:
         dumpObj = pickle.load(input)
         input = dumpObj.input
         sdcTime = dumpObj.output.timeMeasure
 
     i = 0
-    for type in list(set([RunTypes.PARA_CLASSIC, RunTypes.PARA_HYBRID_FULL, RunTypes.PFASST]) & set(plotData)):
+    for type in list(set([RunTypes.PARA_CLASSIC, RunTypes.PARA_HYBRID_FULL,
+                          RunTypes.PARA_HYBRID_PARTIAL, RunTypes.PFASST]) & set(plotData)):
         nprocs, speedUps, efficiency = getSpeedUps('%s_nproc*.dump' % type, sdcTime)
         if len(nprocs) > 0:
             if plotEfficiency:
@@ -175,7 +180,7 @@ def plotSpeedUp(plotEfficiency, plotData):
         pyplot.ylabel('Speedup')
 
 
-def plot(plotTypes, plotData, nprocs=0):
+def plot(plotTypes, plotData, nprocs=[0]):
     for pType in plotTypes:
         pyplot.figure()
         if pType in [PlotTypes.SpeedUp, PlotTypes.Efficiency]:
@@ -183,4 +188,5 @@ def plot(plotTypes, plotData, nprocs=0):
         else:
             plotComparison(pType, plotData, nprocs)
         pyplot.legend()
+    pyplot.savefig('out')
     pyplot.show()

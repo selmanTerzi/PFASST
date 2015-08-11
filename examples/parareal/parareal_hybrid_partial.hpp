@@ -42,6 +42,7 @@ namespace pfasst
         shared_ptr<SpectralTransfer1D<>> transferFunc; // transfer function
         shared_ptr<Encapsulation<>> coarseState;
         
+        bool diffResidual; // flag to determine wether to use the difference criteria as break condition
         double abs_res_tol; // residual tolerance for break condition
         
         private:
@@ -58,7 +59,7 @@ namespace pfasst
           virtual void run();
           
           virtual void setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
-                             shared_ptr<SpectralTransfer1D<>> transferFunc);
+                             shared_ptr<SpectralTransfer1D<>> transferFunc, bool diffResidual);
           
           virtual void set_comm(ICommunicator* comm);
       };

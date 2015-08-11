@@ -72,7 +72,7 @@ namespace pfasst
         para.set_comm(&comm);
         para.add_level(fineSweeper);
         para.add_level(coarseSweeper);
-        para.setup(abs_res_tol, spatial_dofs, spatial_dofs_coarse, transfer);
+        para.setup(spatial_dofs, spatial_dofs_coarse, transfer);
         para.set_options();
         
         fineSweeper->exact(fineSweeper->get_start_state(), 0.0);

@@ -17,8 +17,8 @@ namespace pfasst
         }
         
         // variables for the residium calculation via the difference of the current and last iterations fine end state
-        // auto finedelta = factory_fine->create(solution);
-        // double res; // residual (difference of last and current iteration of end_state)
+        auto finedelta = factory_fine->create(solution);
+        double res; // residual (difference of last and current iteration of end_state)
         
         bool firstRank = commRank == 0;
         bool lastRank = commRank == commSize -1;
@@ -28,7 +28,7 @@ namespace pfasst
         
         double div = this->get_end_time()/this->get_time_step();
         if(div - size_t(div) > 0) {
-          CLOG(INFO, "Controller") << "invalid time step: dt must be a divisor of tend";
+          CLOG(ERROR, "Controller") << "invalid time step: dt must be a divisor of tend";
           throw ValueError("invalid time step: dt must be a divisor of tend");
         }
         size_t nblocks = div/commSize - size_t(div)/commSize > 0 ? size_t(div)/commSize + 1 : size_t(div)/commSize;
@@ -41,13 +41,13 @@ namespace pfasst
         for(size_t nblock = 0; nblock < nblocks; nblock++) { // loop over time blocks
           this->set_step(commSize * nblock + commRank);
           
-          CLOG(INFO, "Parareal") << "Time: " << this->get_time();
+          CVLOG(2, "Parareal") << "Time: " << this->get_time();
           if(this->get_time() >= this->get_end_time()) break;
           
           bool initial = firstRank && nblock == 0;
           bool hasSuccessor = this->get_time() + this->get_time_step() < this->get_end_time();
                               
-          CLOG(INFO, "Parareal") << "hasSuccessor: " << hasSuccessor;
+          CVLOG(2, "Parareal") << "hasSuccessor: " << hasSuccessor;
           for(this->set_iteration(0);
               this->get_iteration() < this->get_max_iterations() && !done; 
               this->advance_iteration()) { // loop over parareal iterations
@@ -57,26 +57,28 @@ namespace pfasst
             
             if(!predict) {
               if(k == 1) {
-              	CLOG(INFO, "Parareal") << "Interpolate in first iteration";
+              	CVLOG(2, "Parareal") << "Interpolate in first iteration";
                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, false);
               }
               
               // set finedelta to last fine end state for the calculation of the difference
-              // finedelta->copy(fineEncap->get_end_state());
+              if(this->diffResidual) finedelta->copy(fineEncap->get_end_state());
               
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
               
-              // TODO: Make flag to choose which break condition shall be used
-              // calc residium for break condition (difference of current and last fine end state):
-              // finedelta->saxpy(-1.0, fineEncap->get_end_state());
-              // res = finedelta->norm0();
-              // done = res < abs_res_tol;
-              // CLOG(INFO, "Parareal") << "Residual: " << res;
-              
-              done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
-              if(done) CLOG(INFO, "Parareal") << "Done!";
+              if(this->diffResidual) {
+                // calc residium for break condition (difference of current and last fine end state):
+                finedelta->saxpy(-1.0, fineEncap->get_end_state());
+                res = finedelta->norm0();
+                done = res < abs_res_tol;
+                CVLOG(2, "Parareal") << "Residual: " << res;
+              }
+              else {
+                done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
+              }
+              if(done) CVLOG(2, "Parareal") << "Done!";
             }
             
             recvStartValue = !prec_done && (!firstRank || (nblock > 0 && predict));
@@ -84,18 +86,18 @@ namespace pfasst
             if(recvStartValue) {
               int t = tag(k, nblock, commRank);
               
-              CLOG(INFO, "Parareal") << "recv coarse initial state";
+              CVLOG(2, "Parareal") << "recv coarse initial state";
               coarseEncap->recv(comm, t, true);
-              CLOG(INFO, "Parareal") << "interpolate initial state";         
+              CVLOG(2, "Parareal") << "interpolate initial state";         
               transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
               if(fineEncap->get_quadrature()->left_is_node()) {
                 fineEncap->get_state(0)->copy(fineEncap->get_start_state());
               }
               
               if(!predict) {
-                CLOG(INFO, "Parareal") << "reevaluate coarse initial";
+                CVLOG(2, "Parareal") << "reevaluate coarse initial";
                 coarseEncap->reevaluate(true);
-                CLOG(INFO, "Parareal") << "reevaluate fine initial";
+                CVLOG(2, "Parareal") << "reevaluate fine initial";
                 fineEncap->reevaluate(true);
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
@@ -113,9 +115,9 @@ namespace pfasst
               if(fineEncap->get_quadrature()->left_is_node()) {
                 fineEncap->get_state(0)->copy(fineEncap->get_start_state());
               }
-              CLOG(INFO, "Parareal") << "fine spread";
+              CVLOG(2, "Parareal") << "fine spread";
               fineEncap->spread();
-              CLOG(INFO, "Parareal") << "coarse spread";
+              CVLOG(2, "Parareal") << "coarse spread";
               coarseEncap->spread();
               coarseEncap->save(false);
             }
@@ -130,16 +132,16 @@ namespace pfasst
             if(!lastRank && hasSuccessor) {
               int t = tag(k, nblock, commRank + 1);
               if(predict) {
-                CLOG(INFO, "Parareal") << "Send coarse end_state";
+                CVLOG(2, "Parareal") << "Send coarse end_state";
                 coarseEncap->send(comm, t, true);
               }
               else {
               	if(doCoarse) {
-                  CLOG(INFO, "Parareal") << "Send Correction";
+                  CVLOG(2, "Parareal") << "Send Correction";
               	  sendCorrection(t);
               	}
               	else {
-                  CLOG(INFO, "Parareal") << "Send restricted fine end_state";
+                  CVLOG(2, "Parareal") << "Send restricted fine end_state";
                   transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
                   coarseEncap->send(comm, t, true);
               	}
@@ -154,7 +156,7 @@ namespace pfasst
           done = false;
           
           if(lastRank && nblock < nblocks - 1 && hasSuccessor) {
-            CLOG(INFO, "Parareal") << "Send restricted fine end_state to next block";
+            CVLOG(2, "Parareal") << "Send restricted fine end_state to next block";
             transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
             coarseEncap->send(comm, tag(0, nblock+1, 0), true);
           }
@@ -202,7 +204,7 @@ namespace pfasst
       
       template<typename time>
       void PartialHybridParareal<time>::setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
-                                       shared_ptr<SpectralTransfer1D<>> transferFunc)
+                                              shared_ptr<SpectralTransfer1D<>> transferFunc, bool diffResidual)
       {
         this->abs_res_tol = abs_res_tol;
         this->transferFunc = transferFunc;
@@ -213,6 +215,8 @@ namespace pfasst
         
         this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
         this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());
+        
+        this->diffResidual = diffResidual;
         
         fineEncap->set_controller(this);
         coarseEncap->set_controller(this);

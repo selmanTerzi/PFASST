@@ -24,7 +24,7 @@ namespace pfasst
         
         double div = this->get_end_time()/this->get_time_step();
         if(div - size_t(div) > 0) {
-          CLOG(INFO, "Controller") << "invalid time step: dt must be a divisor of tend";
+          CLOG(ERROR, "Controller") << "invalid time step: dt must be a divisor of tend";
           throw ValueError("invalid time step: dt must be a divisor of tend");
         }
         size_t nblocks = div/commSize - size_t(div)/commSize > 0 ? size_t(div)/commSize + 1 : size_t(div)/commSize;
@@ -37,7 +37,7 @@ namespace pfasst
         for(size_t nblock = 0; nblock < nblocks; nblock++) { // loop over time blocks
           this->set_step(commSize * nblock + commRank);
           
-          CLOG(INFO, "Parareal") << "Time: " << this->get_time();
+          CVLOG(2, "Parareal") << "Time: " << this->get_time();
           if(this->get_time() >= this->get_end_time()) break;
           
           bool initial = firstRank && nblock == 0;
@@ -50,32 +50,19 @@ namespace pfasst
             size_t k = this->get_iteration();
             bool predict = k == 0;
           
-            // auto u = factory_fine->create(solution);
-            // auto err = factory_fine->create(solution);
-            // auto advecSweeper = dynamic_pointer_cast<AdvectionDiffusionSweeper<>>(fineSweeper);
-            // advecSweeper->exact(u, this->get_time()+this->get_time_step());
-          
             if(!predict) {
-              // err->copy(u);
-              // err->saxpy(-1.0, fineEncap->get_state(fineEncap->get_nodes().size()-1));
-              // CLOG(INFO, "Parareal") << "Fine Error before interpolate: " << err->norm0();
-              
-              CLOG(INFO, "Parareal") << "Interpolate";
+              CVLOG(2, "Parareal") << "Interpolate";
               // compute parareal correction per interpolation
               transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
-              
-              // err->copy(u);
-              // err->saxpy(-1.0, fineEncap->get_state(fineEncap->get_nodes().size()-1));
-              // CLOG(INFO, "Parareal") << "Fine Error after interpolate: " << err->norm0();
               
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
               
               done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
-              if(done) CLOG(INFO, "Parareal") << "Done!";
+              if(done) CVLOG(2, "Parareal") << "Done!";
               
-              CLOG(INFO, "Parareal") << "Restrict";
+              CVLOG(2, "Parareal") << "Restrict";
               transferFunc->PolyInterpMixin<time>::restrict(coarseSweeper, fineSweeper, true);
               coarseEncap->save(false);
             }
@@ -85,11 +72,11 @@ namespace pfasst
             if(recvStartValue) {
               int t = tag(k, nblock, commRank);
               
-              CLOG(INFO, "Parareal") << "recv Coarse Initial state";
+              CVLOG(2, "Parareal") << "recv Coarse Initial state";
               coarseEncap->recv(comm, t, true);
               
               if(!predict) {
-                CLOG(INFO, "Parareal") << "Reevaluate coarse initial";
+                CVLOG(2, "Parareal") << "Reevaluate coarse initial";
                 coarseEncap->reevaluate(true);
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
@@ -98,19 +85,19 @@ namespace pfasst
             
             if(predict) {
               if(initial) {
-                CLOG(INFO, "Parareal") << "restrict initial state";
+                CVLOG(2, "Parareal") << "restrict initial state";
                 transferFunc->restrict_initial(coarseSweeper, fineSweeper);
               }
               else {
-                CLOG(INFO, "Parareal") << "interpolate initial state";
+                CVLOG(2, "Parareal") << "interpolate initial state";
                 transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
                 if(fineEncap->get_quadrature()->left_is_node()) {
                   fineEncap->get_state(0)->copy(fineEncap->get_start_state());
                 }
               }  
-              CLOG(INFO, "Parareal") << "fine spread";
+              CVLOG(2, "Parareal") << "fine spread";
               fineEncap->spread();
-              CLOG(INFO, "Parareal") << "coarse spread";
+              CVLOG(2, "Parareal") << "coarse spread";
               coarseEncap->spread();
               coarseEncap->save(false);
             }
@@ -120,7 +107,7 @@ namespace pfasst
             // send new initial value to next processor
             if(!lastRank && hasSuccessor) {
               int t = tag(k, nblock,commRank+1);
-              CLOG(INFO, "Parareal") << "Send coarse end_state";
+              CVLOG(2, "Parareal") << "Send coarse end_state";
               coarseEncap->send(comm, t, true);
               if(!predict) {
                 comm->status->set_converged(done);
@@ -134,7 +121,7 @@ namespace pfasst
           done = false;
           
           if(lastRank && nblock < nblocks - 1 && hasSuccessor) {
-            CLOG(INFO, "Parareal") << "Send restricted fine end_state to next block";
+            CVLOG(2, "Parareal") << "Send restricted fine end_state to next block";
             transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
             coarseEncap->send(comm, tag(0, nblock+1, 0), true);
           }
@@ -171,10 +158,9 @@ namespace pfasst
       }
       
       template<typename time>
-      void FullHybridParareal<time>::setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
-                                       shared_ptr<SpectralTransfer1D<>> transferFunc)
+      void FullHybridParareal<time>::setup(size_t ndofsfine, size_t ndofscoarse, 
+                                           shared_ptr<SpectralTransfer1D<>> transferFunc)
       {
-        this->abs_res_tol = abs_res_tol;
         this->transferFunc = transferFunc;
         
         this->factory_fine = make_shared<VectorFactory<time>>(ndofsfine);

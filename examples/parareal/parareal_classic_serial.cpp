@@ -55,9 +55,7 @@ namespace pfasst
                                        const double abs_res_tol, const double rel_res_tol)
           {
             auto sdc = make_shared<SDC<time>>();
-            
             auto quad = quadrature::quadrature_factory(nnodes, quad_type);
-            
             auto factory = make_shared<VectorFactory<double>>(ndofs);
             auto sweeper = make_shared<AdvectionDiffusionSweeper<>>(ndofs);
             
@@ -164,7 +162,7 @@ namespace pfasst
             pfasst::log::add_custom_logger("Parareal");
           }
         
-          void run_parareal(const size_t nsteps, const size_t niters,
+          void run_parareal(const double tend, const size_t niters,
                             const size_t nfineiters, const size_t ncrseiters,
                             const double dt, const size_t nnodes, const size_t nnodesCoarse,
                             const quadrature::QuadratureType quad_type,
@@ -189,7 +187,7 @@ namespace pfasst
               if(k > 1 && n_start < k - 1) n_start++;
               size_t nextNStart = n_start;
               
-              for(size_t n = n_start; n < nsteps; n++) {
+              for(size_t n = n_start; n < tend/dt; n++) {
                 
                 CLOG(INFO, "Parareal") << "n: " << n << " nstart: " << n_start;
                 
@@ -200,16 +198,13 @@ namespace pfasst
                 
                 if(k > 0) {
                   diff->copy(u[n]);
-                  
                   u[n]->copy(uFine[n]);
                   
                   if(n > n_start) {
                     delta->copy(coarseState);
                     delta->saxpy(-1.0, uCoarse[n]);
-                    
                     // apply delta correction
                     u[n]->saxpy(1.0, delta);
-                    
                     CLOG(INFO, "Parareal") << "delta Norm: " << delta->norm0();
                   }
                   
@@ -222,7 +217,6 @@ namespace pfasst
                 }
                 uCoarse[n]->copy(coarseState);
                 uFine[n]->copy(fineState);
-                
                 echo_error(n, k, res);
               } // loop over time slices
               n_start = nextNStart;
@@ -243,8 +237,8 @@ int main(int argc, char** argv)
                pfasst::examples::parareal::Parareal<>::init_logs);
   
   const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
-  const size_t  nsteps = pfasst::config::get_value<size_t>("num_steps", 5);
-  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", nsteps + 1);
+  const double  tend = pfasst::config::get_value<double>("tend", 0.1);
+  const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", size_t(tend/dt)+1);
   const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);
   const size_t  ncrseiters = pfasst::config::get_value<size_t>("num_crse_iter", 10);
   const size_t  nnodes = pfasst::config::get_value<size_t>("num_nodes", 5);
