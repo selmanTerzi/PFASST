@@ -59,7 +59,8 @@ namespace pfasst
               fineEncap->sweep();
               fineEncap->post_sweep();
               
-              done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
+              CVLOG(2, "Parareal") << "fine converged:" << fineEncap->converged();
+              done = fineEncap->converged();
               if(done) CVLOG(2, "Parareal") << "Done!";
               
               CVLOG(2, "Parareal") << "Restrict";

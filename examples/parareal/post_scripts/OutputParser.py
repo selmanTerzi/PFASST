@@ -8,8 +8,10 @@ sciRegex = "\d*(?:\.\d+(?:[eE][-+]\d+)?)?"
 timeString = "time Measurement"
 errParaString = "ErrorParareal"
 
+
 class Result:
-    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure):
+    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, input):
+        self.input = input
         self.errMap = errMap
         self.resMap = resMap
         self.iterMap = iterMap
@@ -17,9 +19,10 @@ class Result:
         self.maxStep = maxStep
         self.timeMeasure = timeMeasure
 
-def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure):
+
+def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, input):
     errMap, resMap = fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep)
-    return Result(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure)
+    return Result(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, input)
 
 
 def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
@@ -70,7 +73,6 @@ def parseLines(lines):
     for i in range(len(lines)):
         line = lines[i].decode("utf-8")
         if len(re.findall(timeString, line)) > 0:
-            print(line)
             t = float(re.findall("%s:\s*(%s)" % (timeString, sciRegex), line)[0])
             if t > timeMeasure: timeMeasure = t
         else:
@@ -102,13 +104,14 @@ grepDict = {RunTypes.PARA_HYBRID_FULL: getLinesParaHybrid,
             RunTypes.SDC_Coarse: getLinesSDC,
             RunTypes.SDC_Fine: getLinesSDC}
 
+
 def printMap(map):
     for k in sorted(map):
         for n in sorted(map[k]):
             print("iter: %d step: %d error: %e" % (k, n, map[k][n]))
 
-def getResult(runtype, input, dir='.'):
 
+def getResult(runtype, input, dir='.'):
     errMap = {}
     resMap = {}
     iterMap = {}
@@ -133,7 +136,7 @@ def getResult(runtype, input, dir='.'):
         if maxStepLocal > maxStep: maxStep = maxStepLocal
         if t > timeMeasure: timeMeasure = t
 
-    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure)
+    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, input)
 
 
 def mergeDictionaries(dicA, dicB):

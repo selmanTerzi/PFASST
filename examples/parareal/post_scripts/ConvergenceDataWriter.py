@@ -1,44 +1,57 @@
 __author__ = 's.terzi'
 
-import ConvenientProcessStarter as cps
+import ProcessStarter as ps
+from ProcessStarter import RunTypes
+from OutputParser import getResult
 import pickle
 
-input = cps.Input()
-
+input = ps.Input()
 tend = 0.2
 input.spatial_dofs = 128
 input.spatial_dofs_coarse = 64
 input.abs_res_tol = 1e-14
-input.num_nodes = 3
-input.num_nodes_coarse = 3
-input.num_crse_iter = 1
+input.num_crse_iter = 15
 input.num_fine_iter = 15
+input.num_iter = 20
 
 
-for num_nodes in [3, 5]:
+def getLastError(runType, nproc=1):
+    ps.run_prog(runType, input, nproc)
+    result = getResult(runType, input)
+    return result.errMap[result.maxIter][result.maxStep]
 
-    dtArr = []
-    errPara = []
-    errSDC = []
+def runConvergenceTest(runTypes, num_nodes, dtSteps):
+    for node in num_nodes:
+        dtArr = []
+        errDict = {}
 
-    input.num_nodes = num_nodes
-    input.num_nodes_coarse = num_nodes
-    i = 0
+        input.num_nodes = node
+        input.num_nodes_coarse = node
+        i = 0
 
-    for i in range(6):
-        input.dt = tend/2**(i+1)
-        input.num_steps = round(tend/input.dt)
-        print('num_nodes: %d dt: %f num_steps: %d' % (input.num_nodes, input.dt, input.num_steps))
+        for i in range(dtSteps):
+            input.dt = tend/2**(i+1)
+            print('num_nodes: %d dt: %f' % (input.num_nodes, input.dt))
 
-        output = cps.run_parareal_serial(input)
+            for runType in runTypes:
+                errList = errDict.get(runType, [])
+                if runType not in [RunTypes.SDC_Fine, RunTypes.PARA_CLASSIC_SERIAL]:
+                    nproc = 4
+                else:
+                    nproc = 1
+                errList += [getLastError(runType, nproc)]
+                errDict[runType] = errList
 
-        errPara += [output.errMap[output.maxIter][output.maxStep]]
+            dtArr += [input.dt]
 
-        output = cps.run_vanilla_sdc(input)
+        with open('orderPlot_numNodes%d.pkl' % node, 'wb') as output:
+            pickle.dump([errDict, dtArr, input], output)
 
-        errSDC += [output.errMap[output.maxIter][output.maxStep]]
+runTypes = [
+            RunTypes.SDC_Fine,
+            RunTypes.PARA_CLASSIC,
+            RunTypes.PARA_HYBRID_FULL,
+            RunTypes.PARA_HYBRID_PARTIAL
+            ]
 
-        dtArr += [input.dt]
-
-    with open('orderPlot_numNodes%d.pkl' % num_nodes, 'wb') as output:
-        pickle.dump([errPara, errSDC, dtArr, input], output)
+runConvergenceTest(runTypes, [3, 5], 5)

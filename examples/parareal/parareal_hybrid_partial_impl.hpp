@@ -76,7 +76,8 @@ namespace pfasst
                 CVLOG(2, "Parareal") << "Residual: " << res;
               }
               else {
-                done = firstRank ? fineEncap->converged() : fineEncap->converged() && prec_done;
+                CVLOG(2, "Parareal") << "fine converged:" << fineEncap->converged();
+                done = fineEncap->converged();
               }
               if(done) CVLOG(2, "Parareal") << "Done!";
             }

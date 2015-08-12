@@ -8,27 +8,28 @@ nprocs = [
           # 2,
           # 4,
           # 8,
-          16,
-          # 32
+          # 16,
+          32
           ]
 
 plotData = [
-            # RunTypes.SDC_Fine,
+            RunTypes.SDC_Fine,
             # RunTypes.SDC_Coarse,
             RunTypes.PARA_CLASSIC,
-            # RunTypes.PARA_HYBRID_FULL,
+            RunTypes.PARA_HYBRID_FULL,
             RunTypes.PARA_HYBRID_PARTIAL,
             # RunTypes.PFASST,
             ]
 
 plotTypes = [
-             PlotTypes.SpeedUp,
+             # PlotTypes.SpeedUp,
              # PlotTypes.Efficiency,
-             PlotTypes.AllIterationErrors,
+             # PlotTypes.AllIterationErrors,
              # PlotTypes.AllIterationResiduals,
              # PlotTypes.LastStepError,
-             PlotTypes.LastIterationError,
-             # PlotTypes.Iter
+             # # PlotTypes.LastIterationError,
+             # PlotTypes.Iter,
+             PlotTypes.ConvergenceData
              ]
 
 plot(plotTypes, plotData, nprocs)

@@ -13,13 +13,12 @@ import copy
 runDirectorysRoot = os.path.expanduser("~")+'/project/PFASST/run/'
 
 class DumpObj:
-    def __init__(self, input, output, nproc):
-        self.input = input
-        self.output = output
+    def __init__(self, result, nproc):
+        self.result = result
         self.nproc = nproc
 
 
-def dumpOutput(input, output, fileName, nproc = 1):
+def dumpOutput(output, fileName, nproc = 1):
     with open(fileName, 'wb') as outfile:
         pickle.dump(DumpObj(input, output, nproc), outfile)
 
@@ -39,11 +38,11 @@ def dumpRuns(runTypes, nprocs, inputFine):
             else:
                 inputCurrent = inputFine
             ps.run_prog(runType, inputCurrent)
-            dumpOutput(inputCurrent, getResult(runType, inputCurrent), '%s.dump' % runType)
+            dumpOutput(getResult(runType, inputCurrent), '%s.dump' % runType)
         else:
             for nproc in nprocs:
                 ps.run_prog(runType, inputFine, nproc)
-                dumpOutput(inputFine, getResult(runType, inputFine), '%s_nproc%d.dump' % (runType, nproc), nproc)
+                dumpOutput(getResult(runType, inputFine), '%s_nproc%d.dump' % (runType, nproc), nproc)
 
 
 def getRunTypeAndInput(dir):
@@ -88,5 +87,10 @@ def dumpDir(dirNames):
     for dir in glob.glob(runDirectorysRoot + dirNames):
         print(dir)
         runType, input, nproc = getRunTypeAndInput(dir)
-        dumpOutput(input, getResult(runType, input, dir), '%s_nproc%d.dump' % (runType, nproc), nproc)
+        if runType == RunTypes.SDC_Fine:
+            fname = '%s.dump' % RunTypes.SDC_Fine
+        else:
+            fname = '%s_nproc%d.dump' % (runType, nproc)
+        print(fname)
+        dumpOutput(getResult(runType, input, dir), fname, nproc)
 

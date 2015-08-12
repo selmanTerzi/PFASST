@@ -63,7 +63,7 @@ namespace pfasst
         const size_t spatial_dofs_coarse = config::get_value<size_t>("spatial_dofs_coarse",64);
         const double abs_res_tol = config::get_value<double>("abs_res_tol",1e-14);
         const double rel_res_tol = config::get_value<double>("rel_res_tol",1e-14);
-        const bool diffRes = config::get_value<double>("diffRes", false);
+        const bool diffRes = config::get_value<bool>("diffRes", false);
         auto quadType = pfasst::quadrature::QuadratureType::GaussLobatto;
         
         auto transfer = make_shared<SpectralTransfer1D<>>();
