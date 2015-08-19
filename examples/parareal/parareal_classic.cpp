@@ -284,7 +284,6 @@ namespace pfasst
                 else {
                   u->copy(fineState);
                 }
-                echo_error(k, j, 0.0);
                 
                 if(!predict && !done) {
                   // calc the residual
