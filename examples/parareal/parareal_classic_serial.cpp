@@ -72,7 +72,7 @@ namespace pfasst
             return sdc;
           }
         
-          void init(const size_t nsteps, const double dt,
+          void init(const double tend, const double dt,
                     const size_t nnodes, const size_t nnodesCoarse,
                     const quadrature::QuadratureType quad_type,
                     const size_t ndofs_fine, const size_t ndofs_coarse,
@@ -96,6 +96,8 @@ namespace pfasst
             uFine.clear();
             uCoarse.clear();
             uExact.clear();
+            
+            size_t nsteps = tend/dt;
             
             for(size_t i = 0 ; i < nsteps; i++) {
               u.push_back(factory->create(solution));
@@ -170,7 +172,7 @@ namespace pfasst
                             const double abs_res_tol, const double rel_res_tol)
           {
             
-            init(nsteps, dt, nnodes, nnodesCoarse, quad_type, ndofs_fine, ndofs_coarse, 
+            init(tend, dt, nnodes, nnodesCoarse, quad_type, ndofs_fine, ndofs_coarse, 
                  nfineiters, ncrseiters, abs_res_tol, rel_res_tol);
             
             shared_ptr<Encapsulation<double>> coarseState = factory->create(solution);
@@ -252,7 +254,7 @@ int main(int argc, char** argv)
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
   
   pfasst::examples::parareal::Parareal<> parareal;
-  parareal.run_parareal(nsteps, npariters, nfineiters, ncrseiters, 
+  parareal.run_parareal(tend, npariters, nfineiters, ncrseiters, 
                         dt, nnodes, nnodesCoarse, quad_type,
                         ndofs_fine, ndofs_coarse, abs_res_tol, rel_res_tol);
   
