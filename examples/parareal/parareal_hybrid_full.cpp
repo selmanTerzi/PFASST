@@ -43,6 +43,7 @@ namespace pfasst
         pfasst::examples::parareal::AdvectionDiffusionSweeper<>::init_opts();
         pfasst::config::options::add_option<size_t>("Parareal", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
         pfasst::config::options::add_option<size_t>("Parareal", "num_nodes_coarse", "Number of collocation nodes for coarse sweeper");
+        pfasst::config::options::add_option<bool>("Parareal", "diffRes", "flag to determine wether to use the difference criteria as break condition");
       }
       
       static void init_logs()
@@ -62,6 +63,7 @@ namespace pfasst
         const size_t spatial_dofs_coarse = config::get_value<size_t>("spatial_dofs_coarse",64);
         const double abs_res_tol = config::get_value<double>("abs_res_tol",1e-14);
         const double rel_res_tol = config::get_value<double>("rel_res_tol",1e-14);
+        const bool diffRes = config::get_value<bool>("diffRes", false);
         auto quadType = pfasst::quadrature::QuadratureType::GaussLobatto;
         
         auto transfer = make_shared<SpectralTransfer1D<>>();
@@ -72,7 +74,7 @@ namespace pfasst
         para.set_comm(&comm);
         para.add_level(fineSweeper);
         para.add_level(coarseSweeper);
-        para.setup(spatial_dofs, spatial_dofs_coarse, transfer);
+        para.setup(abs_res_tol, spatial_dofs, spatial_dofs_coarse, transfer, diffRes);
         para.set_options();
         
         fineSweeper->exact(fineSweeper->get_start_state(), 0.0);

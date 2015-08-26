@@ -41,6 +41,9 @@ namespace pfasst
         
         shared_ptr<SpectralTransfer1D<>> transferFunc; // transfer function
         
+        bool diffResidual; // flag to determine wether to use the difference criteria as break condition
+        double abs_res_tol; // residual tolerance for break condition
+        
         private:
           virtual int tag(const size_t k, const size_t j, int commRank);
           
@@ -52,8 +55,8 @@ namespace pfasst
           */
           virtual void run();
           
-          virtual void setup(size_t ndofsfine, size_t ndofscoarse, 
-                             shared_ptr<SpectralTransfer1D<>> transferFunc);
+          virtual void setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
+                             shared_ptr<SpectralTransfer1D<>> transferFunc, bool diffResidual);
           
           virtual void set_comm(ICommunicator* comm);
       };

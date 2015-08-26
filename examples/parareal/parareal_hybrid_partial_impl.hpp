@@ -73,7 +73,7 @@ namespace pfasst
                 finedelta->saxpy(-1.0, fineEncap->get_end_state());
                 res = finedelta->norm0();
                 done = res < abs_res_tol;
-                CVLOG(2, "Parareal") << "Residual: " << res;
+                CLOG(INFO, "Parareal") << "DiffResidual: " << res;
               }
               else {
                 CVLOG(2, "Parareal") << "fine converged:" << fineEncap->converged();

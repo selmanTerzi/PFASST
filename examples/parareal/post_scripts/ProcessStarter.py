@@ -19,6 +19,7 @@ class Input:
     num_crse_iter = 20
     num_fine_iter = 20
     num_iter = 20
+    diffRes = False
 
 
 class RunTypes:
@@ -61,10 +62,12 @@ def run_prog(runType, input, nproc=1):
     if runType not in [RunTypes.SDC_Coarse, RunTypes.SDC_Fine]:
         pargs += ['--spatial_dofs_coarse', '%d' % input.spatial_dofs_coarse,
                  '--num_nodes_coarse', '%d' % input.num_nodes_coarse]
+    if runType in [RunTypes.PARA_HYBRID_FULL, RunTypes.PARA_HYBRID_PARTIAL]:
+        pargs += ['--diffRes', '%s' % input.diffRes]
     if runType in [RunTypes.PARA_CLASSIC, RunTypes.PARA_CLASSIC_SERIAL]:
         pargs += ['--num_crse_iter', '%d' % input.num_crse_iter,
-                 '--num_fine_iter', '%d' % input.num_fine_iter]
-
+                  '--num_fine_iter', '%d' % input.num_fine_iter]
+    print(pargs)
     call("rm -rf *.log", shell=True)
     with open(os.devnull, "w") as f:
         call(pargs, stdout=f)

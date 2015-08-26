@@ -15,12 +15,16 @@ namespace pfasst
           exit(-1);
         }
         
-        auto coarseState = factory_crse->create(solution);
+        auto coarseState = factory_crse->create(solution);        
+        // variables for the residium calculation via the difference of the current and last iterations fine end state
+        auto finedelta = factory_fine->create(solution);
+        double res; // residual (difference of last and current iteration of end_state)
         
         bool firstRank = commRank == 0;
         bool lastRank = commRank == commSize -1;
         bool prec_done = false; // boolean for checking if the precedessor is done
         bool done = false; // boolean for breaking next iteration if converged
+        bool recvStartValue = false; // boolean for determining if a new startValue must be received
         
         double div = this->get_end_time()/this->get_time_step();
         if(div - size_t(div) > 0) {
@@ -55,12 +59,24 @@ namespace pfasst
               // compute parareal correction per interpolation
               transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, true);
               
+              // set finedelta to last fine end state for the calculation of the difference
+              if(this->diffResidual) finedelta->copy(fineEncap->get_end_state());
+              
               CLOG(INFO, "Parareal") << "Fine Sweep";
               fineEncap->sweep();
               fineEncap->post_sweep();
               
-              CVLOG(2, "Parareal") << "fine converged:" << fineEncap->converged();
-              done = fineEncap->converged();
+              if(this->diffResidual) {
+                // calc residium for break condition (difference of current and last fine end state):
+                finedelta->saxpy(-1.0, fineEncap->get_end_state());
+                res = finedelta->norm0();
+                done = res < abs_res_tol;
+                CLOG(INFO, "Parareal") << "DiffResidual: " << res;
+              }
+              else {
+                CVLOG(2, "Parareal") << "fine converged:" << fineEncap->converged();
+                done = fineEncap->converged();
+              }
               if(done) CVLOG(2, "Parareal") << "Done!";
               
               CVLOG(2, "Parareal") << "Restrict";
@@ -68,7 +84,7 @@ namespace pfasst
               coarseEncap->save(false);
             }
             
-            bool recvStartValue = !prec_done && (!firstRank || (nblock > 0 && predict));
+            recvStartValue = !prec_done && (!firstRank || (nblock > 0 && predict));
             // get new initial value for coarse sweep
             if(recvStartValue) {
               int t = tag(k, nblock, commRank);
@@ -159,9 +175,10 @@ namespace pfasst
       }
       
       template<typename time>
-      void FullHybridParareal<time>::setup(size_t ndofsfine, size_t ndofscoarse, 
-                                           shared_ptr<SpectralTransfer1D<>> transferFunc)
+      void FullHybridParareal<time>::setup(double abs_res_tol, size_t ndofsfine, size_t ndofscoarse, 
+                                           shared_ptr<SpectralTransfer1D<>> transferFunc, bool diffResidual)
       {
+        this->abs_res_tol = abs_res_tol;
         this->transferFunc = transferFunc;
         
         this->factory_fine = make_shared<VectorFactory<time>>(ndofsfine);
@@ -169,6 +186,8 @@ namespace pfasst
         
         this->coarseEncap = &encap::as_encap_sweeper<time>(this->get_coarsest());
         this->fineEncap = &encap::as_encap_sweeper<time>(this->get_finest());
+        
+        this->diffResidual = diffResidual;
         
         fineEncap->set_controller(this);
         coarseEncap->set_controller(this);

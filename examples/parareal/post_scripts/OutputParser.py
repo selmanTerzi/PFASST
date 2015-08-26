@@ -7,7 +7,7 @@ from ProcessStarter import RunTypes
 sciRegex = "\d*(?:\.\d+(?:[eE][-+]\d+)?)?"
 timeString = "time Measurement"
 errParaString = "ErrorParareal"
-
+diffResString = "DiffResidual"
 
 class Result:
     def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, input):
@@ -49,8 +49,8 @@ def getLinesParaClassic(file):
 
 
 def getLinesParaHybrid(file):
-    grep2 = Popen(['grep', '\(step:\|%s\)' % timeString], stdin=PIPE, stdout=PIPE)
-    grep1 = Popen(['grep', '-A1', '\(Fine Sweep\|%s\)' % timeString], stdin = file, stdout=grep2.stdin)
+    grep2 = Popen(['grep', '\(step:\|%s\|%s\)' % (timeString, diffResString)], stdin=PIPE, stdout=PIPE)
+    grep1 = Popen(['grep', '-A1', '\(Fine Sweep\|%s\|%s\)' % (timeString, diffResString)], stdin=file, stdout=grep2.stdin)
     output = grep2.communicate()[0]
     grep1.wait()
     return output.splitlines()
@@ -69,10 +69,14 @@ def parseLines(lines):
     maxStep = 0
     maxIter = 0
     timeMeasure = 0
-
     for i in range(len(lines)):
         line = lines[i].decode("utf-8")
-        if len(re.findall(timeString, line)) > 0:
+
+        if len(re.findall(diffResString, line)) > 0:
+            residual = float(re.findall("%s:\s*(%s)" % (diffResString, sciRegex), line)[0])
+            resMap[iter] = resMap.get(iter, {})
+            resMap[iter][step] = residual
+        elif len(re.findall(timeString, line)) > 0:
             t = float(re.findall("%s:\s*(%s)" % (timeString, sciRegex), line)[0])
             if t > timeMeasure: timeMeasure = t
         else:
@@ -90,10 +94,7 @@ def parseLines(lines):
             residual = float(re.findall("residual:\s*(%s)" % sciRegex, line)[0])
             resMap[iter] = resMap.get(iter, {})
             resMap[iter][step] = residual
-
-            # print("iter: %d step: %d error: %e" % (iter, step, error))
-
-    print('timeMeasure: %g' % timeMeasure)
+            
     return errMap, resMap, iterMap, maxIter, maxStep, timeMeasure
 
 grepDict = {RunTypes.PARA_HYBRID_FULL: getLinesParaHybrid,
@@ -121,7 +122,6 @@ def getResult(runtype, input, dir='.'):
 
     pattern = dir + '/*.log'
     for fileName in sorted(glob.glob(pattern)):
-        print(fileName)
         with open(fileName, 'r') as file:
             param = file
             if runtype == RunTypes.PFASST:

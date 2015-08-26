@@ -22,10 +22,11 @@ class PlotTypes:
     AllIterationErrors = 2
     Iter = 3
     LastStepError = 4
-    LastIterationError = 5
-    SpeedUp = 6
-    Efficiency = 7
-    ConvergenceData = 8
+    LastStepResidual = 5
+    LastIterationError = 6
+    SpeedUp = 7
+    Efficiency = 8
+    ConvergenceData = 9
 
 
 def plotLastIterationError(dumpObj, style, label):
@@ -34,6 +35,7 @@ def plotLastIterationError(dumpObj, style, label):
 
 
 def plotAllIterations(data, style, label):
+    print(data)
     firstPlot = True
     for i in data.keys():
         if firstPlot:
@@ -77,6 +79,14 @@ def plotLastStepError(dumpObj, style, label):
         err += [errMap[i][maxStep]]
     pyplot.plot(list(range(1, maxIter+1)), err, style, label=label)
 
+def plotLastStepResidual(dumpObj, style, label):
+    resMap = dumpObj.result.resMap
+    maxIter = dumpObj.result.maxIter
+    maxStep = dumpObj.result.maxStep
+    err = []
+    for i in range(1, maxIter+1):
+        err += [resMap[i][maxStep]]
+    pyplot.plot(list(range(1, maxIter+1)), err, style, label=label)
 
 def processPlotDataName(plotData, nproc):
     plotDataNames = []
@@ -102,6 +112,7 @@ def plotComparison(plotType, plotData, nprocs = [0]):
 plotDict = {PlotTypes.LastIterationError: plotLastIterationError,
             PlotTypes.Iter: plotIterations,
             PlotTypes.LastStepError: plotLastStepError,
+            PlotTypes.LastStepResidual: plotLastStepResidual,
             PlotTypes.AllIterationErrors: plotAllIterations,
             PlotTypes.AllIterationResiduals: plotAllIterations}
 
@@ -109,19 +120,22 @@ plotDict = {PlotTypes.LastIterationError: plotLastIterationError,
 def plotFile(plotType, fname):
     print(fname)
     if plotType in [PlotTypes.LastStepError,
+                    PlotTypes.LastStepResidual,
                     PlotTypes.LastIterationError,
                     PlotTypes.AllIterationErrors,
                     PlotTypes.AllIterationResiduals,
                     PlotTypes.Iter]:
         if plotType != PlotTypes.Iter:
             pyplot.yscale('log')
-        if plotType == PlotTypes.AllIterationResiduals:
+        if plotType in [PlotTypes.AllIterationResiduals,
+                        PlotTypes.LastStepResidual]:
             pyplot.ylabel('Residuum')
         elif plotType == PlotTypes.Iter:
             pyplot.ylabel('Iterationen')
         else:
             pyplot.ylabel('Fehler')
-    if plotType == PlotTypes.LastStepError:
+    if plotType in [PlotTypes.LastStepError,
+                    PlotTypes.LastStepResidual]:
         pyplot.xlabel('Iterationen')
     else:
         pyplot.xlabel('Zeitschritt')
@@ -141,20 +155,18 @@ def plotFile(plotType, fname):
 def getSpeedUps(fileNames, sdcTime):
     data = {}
     for file in glob.glob(fileNames):
-        print(file)
         with open(file, 'rb') as input:
             dumpObj = pickle.load(input)
             timeMeasure = dumpObj.result.timeMeasure
         speedUp = sdcTime/timeMeasure
         efficiency = speedUp/dumpObj.nproc
-        print("timeMeasure: %g speedUp: %g " %(timeMeasure, speedUp))
+        # print("timeMeasure: %g speedUp: %g " %(timeMeasure, speedUp))
         data[dumpObj.nproc] = [speedUp, efficiency]
         sortedData = sorted(data.items())
         nprocs = []
         speedUps = []
         efficiency = []
         for t in sortedData:
-            print(t)
             nprocs += [t[0]]
             speedUps += [t[1][0]]
             efficiency += [t[1][1]]
@@ -190,11 +202,9 @@ def plotSpeedUp(plotEfficiency, plotData):
 
 def plotConvergenceData(plotData):
     for file in glob.glob('orderPlot_numNodes[1-9].pkl'):
-        print(file)
         with open(file, 'rb') as f:
             [errDict, dtArr, input] = pickle.load(f)
 
-        print(errDict)
         for pdata in plotData:
             if pdata not in errDict.keys():
                 continue

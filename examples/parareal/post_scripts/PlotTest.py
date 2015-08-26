@@ -5,15 +5,16 @@ from ProcessStarter import RunTypes
 
 nprocs = [
           # 0,
-          # 2,
-          # 4,
-          # 8,
-          # 16,
-          32
+          2,
+          4,
+          8,
+          16,
+          32,
+          64
           ]
 
 plotData = [
-            RunTypes.SDC_Fine,
+            # RunTypes.SDC_Fine,
             # RunTypes.SDC_Coarse,
             RunTypes.PARA_CLASSIC,
             RunTypes.PARA_HYBRID_FULL,
@@ -22,14 +23,15 @@ plotData = [
             ]
 
 plotTypes = [
-             # PlotTypes.SpeedUp,
+             PlotTypes.SpeedUp,
              # PlotTypes.Efficiency,
              # PlotTypes.AllIterationErrors,
              # PlotTypes.AllIterationResiduals,
-             # PlotTypes.LastStepError,
-             # # PlotTypes.LastIterationError,
+             PlotTypes.LastStepError,
+             PlotTypes.LastStepResidual,
+             # PlotTypes.LastIterationError,
              # PlotTypes.Iter,
-             PlotTypes.ConvergenceData
+             # PlotTypes.ConvergenceData
              ]
 
 plot(plotTypes, plotData, nprocs)

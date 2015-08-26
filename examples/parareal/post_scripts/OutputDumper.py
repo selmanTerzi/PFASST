@@ -18,9 +18,9 @@ class DumpObj:
         self.nproc = nproc
 
 
-def dumpOutput(output, fileName, nproc = 1):
+def dumpOutput(result, fileName, nproc = 1):
     with open(fileName, 'wb') as outfile:
-        pickle.dump(DumpObj(input, output, nproc), outfile)
+        pickle.dump(DumpObj(result, nproc), outfile)
 
 
 def getCoarseInput(input):
@@ -83,14 +83,13 @@ def getRunTypeAndInput(dir):
     return runType, input, nproc
 
 
-def dumpDir(dirNames):
-    for dir in glob.glob(runDirectorysRoot + dirNames):
+def dumpDir(dirNames, root = '.'):
+    for dir in glob.glob(runDirectorysRoot + root + '/' + dirNames):
         print(dir)
         runType, input, nproc = getRunTypeAndInput(dir)
         if runType == RunTypes.SDC_Fine:
             fname = '%s.dump' % RunTypes.SDC_Fine
         else:
             fname = '%s_nproc%d.dump' % (runType, nproc)
-        print(fname)
         dumpOutput(getResult(runType, input, dir), fname, nproc)
 
