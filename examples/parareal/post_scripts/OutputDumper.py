@@ -47,7 +47,7 @@ def dumpRuns(runTypes, nprocs, inputFine):
 
 def getRunTypeAndInput(dir):
     with open(glob.glob(dir + '/*.job')[0]) as f:
-        grep = Popen(['grep', '\(--np\|/PFASST/\|--tend\)'], stdin=f, stdout=PIPE)
+        grep = Popen(['grep', '\(--np\|\\\\\|--tend\)'], stdin=f, stdout=PIPE)
         output = grep.communicate()[0].splitlines()
 
     procName = []
@@ -61,7 +61,7 @@ def getRunTypeAndInput(dir):
 
     for i in range(len(output)):
         line = output[i].decode("utf-8")
-        procName += re.findall('/([^/]*)\s+\\\\', line)
+        procName += re.findall('/?([^/^:^\s]+) \\\\', line)
         np += re.findall('--np\s*(\d*)', line)
         tend += re.findall('--tend\s*(\d*)', line)
         dt += re.findall('--dt\s*(\d*)', line)

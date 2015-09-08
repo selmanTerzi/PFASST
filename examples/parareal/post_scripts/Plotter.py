@@ -35,7 +35,6 @@ def plotLastIterationError(dumpObj, style, label):
 
 
 def plotAllIterations(data, style, label):
-    print(data)
     firstPlot = True
     for i in data.keys():
         if firstPlot:
