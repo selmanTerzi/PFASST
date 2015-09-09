@@ -87,9 +87,9 @@ def dumpDir(dirNames, root = '.'):
     for dir in glob.glob(runDirectorysRoot + root + '/' + dirNames):
         print(dir)
         runType, input, nproc = getRunTypeAndInput(dir)
-        if runType == RunTypes.SDC_Fine:
-            fname = '%s.dump' % RunTypes.SDC_Fine
+        if runType in [RunTypes.SDC_Fine, RunTypes.SDC_Coarse]:
+            fname = '%s\%s.dump' % (root, runType)
         else:
-            fname = '%s_nproc%d.dump' % (runType, nproc)
+            fname = '%s\%s_nproc%d.dump' % (root, runType, nproc)
         dumpOutput(getResult(runType, input, dir), fname, nproc)
 
