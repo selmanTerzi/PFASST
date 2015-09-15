@@ -45,6 +45,8 @@ namespace pfasst
         bool diffResidual; // flag to determine wether to use the difference criteria as break condition
         double abs_res_tol; // residual tolerance for break condition
         
+        double tInterpolRestrict = 0.0; // variable for timing of interpolation and restriction operations
+        
         private:
           virtual int tag(const size_t k, const size_t j, int commRank);
           

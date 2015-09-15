@@ -25,6 +25,7 @@ namespace pfasst
         bool prec_done = false; // boolean for checking if the precedessor is done
         bool done = false; // boolean for breaking next iteration if converged
         bool recvStartValue = false; // boolean for determining if a new startValue must be received
+        double timeMeasure; // variable for timings
         
         double div = this->get_end_time()/this->get_time_step();
         if(div - size_t(div) > 0) {
@@ -58,7 +59,9 @@ namespace pfasst
             if(!predict) {
               if(k == 1) {
               	CVLOG(2, "Parareal") << "Interpolate in first iteration";
+                timeMeasure = MPI_Wtime();
                 transferFunc->PolyInterpMixin<time>::interpolate(fineSweeper, coarseSweeper, false);
+                tInterpolRestrict += MPI_Wtime() - timeMeasure;
               }
               
               // set finedelta to last fine end state for the calculation of the difference
@@ -89,8 +92,11 @@ namespace pfasst
               
               CVLOG(2, "Parareal") << "recv coarse initial state";
               coarseEncap->recv(comm, t, true);
-              CVLOG(2, "Parareal") << "interpolate initial state";         
+              CVLOG(2, "Parareal") << "interpolate initial state"; 
+              timeMeasure = MPI_Wtime();        
               transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
+              tInterpolRestrict += MPI_Wtime() - timeMeasure;
+              
               if(fineEncap->get_quadrature()->left_is_node()) {
                 fineEncap->get_state(0)->copy(fineEncap->get_start_state());
               }
@@ -108,8 +114,11 @@ namespace pfasst
             if(predict) {
               if(initial) {
               	CLOG(INFO, "Parareal") << "restrict initial state";
+                timeMeasure = MPI_Wtime();
               	transferFunc->restrict_initial(coarseSweeper, fineSweeper);
-              	if(coarseEncap->get_quadrature()->left_is_node()) {
+                tInterpolRestrict += MPI_Wtime() - timeMeasure;
+              	
+                if(coarseEncap->get_quadrature()->left_is_node()) {
               	  coarseEncap->get_state(0)->copy(coarseEncap->get_start_state());
               	}
               }
@@ -143,7 +152,10 @@ namespace pfasst
               	}
               	else {
                   CVLOG(2, "Parareal") << "Send restricted fine end_state";
+                  timeMeasure = MPI_Wtime();
                   transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
+                  tInterpolRestrict += MPI_Wtime() - timeMeasure; 
+                  
                   coarseEncap->send(comm, t, true);
               	}
               	comm->status->set_converged(done);
@@ -158,10 +170,14 @@ namespace pfasst
           
           if(lastRank && nblock < nblocks - 1 && hasSuccessor) {
             CVLOG(2, "Parareal") << "Send restricted fine end_state to next block";
+            timeMeasure = MPI_Wtime();
             transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
+            tInterpolRestrict += MPI_Wtime() - timeMeasure; 
+            
             coarseEncap->send(comm, tag(0, nblock+1, 0), true);
           }
         } // loop over time blocks
+        CLOG(INFO, "Advec") << "time Measurement Interpolation: " << tInterpolRestrict;
       }
       
       template<typename time>
@@ -183,7 +199,10 @@ namespace pfasst
       void PartialHybridParareal<time>::sendCorrection(int tag)
       {
         // Calculate parareal-correction
+        double timeMeasure = MPI_Wtime();
         transferFunc->restrict(coarseState, fineEncap->get_end_state());
+        tInterpolRestrict += MPI_Wtime() - timeMeasure;
+        
         coarseState->saxpy(1.0, coarseEncap->get_end_state());
         coarseState->saxpy(-1.0, coarseEncap->get_saved_state(coarseEncap->get_nodes().size()-1));
         coarseState->send(comm, tag, true);
