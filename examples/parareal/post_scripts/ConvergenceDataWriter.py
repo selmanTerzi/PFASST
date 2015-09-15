@@ -10,9 +10,6 @@ tend = 0.2
 input.spatial_dofs = 128
 input.spatial_dofs_coarse = 64
 input.abs_res_tol = 1e-14
-input.num_crse_iter = 15
-input.num_fine_iter = 15
-input.num_iter = 20
 
 
 def getLastError(runType, nproc=1):

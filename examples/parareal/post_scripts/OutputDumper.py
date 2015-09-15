@@ -13,14 +13,15 @@ import copy
 runDirectorysRoot = os.path.expanduser("~")+'/project/PFASST/run/'
 
 class DumpObj:
-    def __init__(self, result, nproc):
+    def __init__(self, result, nproc, runtype):
         self.result = result
         self.nproc = nproc
+        self.runtype = runtype
 
 
-def dumpOutput(result, fileName, nproc = 1):
+def dumpOutput(result, fileName, runtype, nproc=1):
     with open(fileName, 'wb') as outfile:
-        pickle.dump(DumpObj(result, nproc), outfile)
+        pickle.dump(DumpObj(result, nproc, runtype), outfile)
 
 
 def getCoarseInput(input):
@@ -38,11 +39,11 @@ def dumpRuns(runTypes, nprocs, inputFine):
             else:
                 inputCurrent = inputFine
             ps.run_prog(runType, inputCurrent)
-            dumpOutput(getResult(runType, inputCurrent), '%s.dump' % runType)
+            dumpOutput(getResult(runType, inputCurrent), '%s.dump' % runType, runType)
         else:
             for nproc in nprocs:
                 ps.run_prog(runType, inputFine, nproc)
-                dumpOutput(getResult(runType, inputFine), '%s_nproc%d.dump' % (runType, nproc), nproc)
+                dumpOutput(getResult(runType, inputFine), '%s_nproc%d.dump' % (runType, nproc), runType, nproc)
 
 
 def getRunTypeAndInput(dir):
@@ -91,5 +92,5 @@ def dumpDir(dirNames, root = '.'):
             fname = '%s\%s.dump' % (root, runType)
         else:
             fname = '%s\%s_nproc%d.dump' % (root, runType, nproc)
-        dumpOutput(getResult(runType, input, dir), fname, nproc)
+        dumpOutput(getResult(runType, input, dir), fname, runType, nproc)
 
