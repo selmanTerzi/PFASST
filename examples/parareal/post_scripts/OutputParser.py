@@ -7,11 +7,12 @@ from ProcessStarter import RunTypes
 sciRegex = "\d*(?:\.\d+(?:[eE][-+]\d+)?)?"
 timeString = "time Measurement"
 interpolString = "Interpolation"
+communicationString = "Communication"
 errParaString = "ErrorParareal"
 diffResString = "DiffResidual"
 
 class Result:
-    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, input):
+    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input):
         self.input = input
         self.errMap = errMap
         self.resMap = resMap
@@ -20,11 +21,12 @@ class Result:
         self.maxStep = maxStep
         self.timeMeasure = timeMeasure
         self.interpolTimeMeasure = interpolTimeMeasure
+        self.commTimeMeasure = commTimeMeasure
 
 
-def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, input):
+def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input):
     errMap, resMap = fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep)
-    return Result(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, input)
+    return Result(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input)
 
 
 def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
@@ -72,6 +74,7 @@ def parseLines(lines):
     maxIter = 0
     timeMeasure = 0
     interpolTimeMeasure = 0
+    commTimeMeasure = 0
     for i in range(len(lines)):
         line = lines[i].decode("utf-8")
 
@@ -82,10 +85,16 @@ def parseLines(lines):
         elif len(re.findall(timeString, line)) > 0:
             if len(re.findall(interpolString, line)) > 0:
                 t = float(re.findall("%s:\s*(%s)" % (timeString + ' ' + interpolString, sciRegex), line)[0])
-                if t > interpolTimeMeasure: interpolTimeMeasure = t
+                if t > interpolTimeMeasure:
+                    interpolTimeMeasure = t
+            elif len(re.findall(communicationString, line)) > 0:
+                t = float(re.findall("%s:\s*(%s)" % (timeString + ' ' + communicationString, sciRegex), line)[0])
+                if t > commTimeMeasure:
+                    commTimeMeasure = t
             else:
                 t = float(re.findall("%s:\s*(%s)" % (timeString, sciRegex), line)[0])
-                if t > timeMeasure: timeMeasure = t
+                if t > timeMeasure:
+                    timeMeasure = t
         else:
             iter = int(re.findall("iter:\s*(\d*)", line)[0])
             step = int(re.findall("step:\s*(\d*)", line)[0])
@@ -102,7 +111,7 @@ def parseLines(lines):
             resMap[iter] = resMap.get(iter, {})
             resMap[iter][step] = residual
             
-    return errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure
+    return errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure
 
 grepDict = {RunTypes.PARA_HYBRID_FULL: getLinesParaHybrid,
             RunTypes.PARA_HYBRID_PARTIAL: getLinesParaHybrid,
@@ -127,6 +136,7 @@ def getResult(runtype, input, dir='.'):
     maxStep = 0
     timeMeasure = 0
     interpolTimeMeasure = 0
+    commTimeMeasure = 0
 
     pattern = dir + '/*.log'
     for fileName in sorted(glob.glob(pattern)):
@@ -134,7 +144,7 @@ def getResult(runtype, input, dir='.'):
             param = file
             if runtype == RunTypes.PFASST:
                 param = param, input.spatial_dofs
-            errMapLocal, resMapLocal, iterMapLocal, maxIterLocal, maxStepLocal, t, tInterpol = parseLines(grepDict[runtype](param))
+            errMapLocal, resMapLocal, iterMapLocal, maxIterLocal, maxStepLocal, t, tInterpol, tComm = parseLines(grepDict[runtype](param))
 
         mergeDictionaries(errMap, errMapLocal)
         mergeDictionaries(resMap, resMapLocal)
@@ -142,10 +152,14 @@ def getResult(runtype, input, dir='.'):
 
         if maxIterLocal > maxIter: maxIter = maxIterLocal
         if maxStepLocal > maxStep: maxStep = maxStepLocal
-        if t > timeMeasure: timeMeasure = t
-        if tInterpol > interpolTimeMeasure: interpolTimeMeasure = tInterpol
+        if t > timeMeasure:
+            timeMeasure = t
+        if tInterpol > interpolTimeMeasure:
+            interpolTimeMeasure = tInterpol
+        if tComm > commTimeMeasure:
+            commTimeMeasure = tComm
 
-    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, input)
+    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input)
 
 
 def mergeDictionaries(dicA, dicB):
