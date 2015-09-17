@@ -238,7 +238,7 @@ int main(int argc, char** argv)
                pfasst::examples::parareal::Parareal<>::init_opts,
                pfasst::examples::parareal::Parareal<>::init_logs);
   
-  const double  dt     = pfasst::config::get_value<double>("dt", 0.01);
+  const double  dt = pfasst::config::get_value<double>("dt", 0.01);
   const double  tend = pfasst::config::get_value<double>("tend", 0.1);
   const size_t  npariters = pfasst::config::get_value<size_t>("num_par_iter", size_t(tend/dt)+1);
   const size_t  nfineiters = pfasst::config::get_value<size_t>("num_fine_iter", 10);

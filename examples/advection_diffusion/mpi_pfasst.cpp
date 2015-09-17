@@ -34,6 +34,14 @@ namespace pfasst
   {
     namespace advection_diffusion
     {
+      
+      static void pfasst_init_opts()
+      {
+        pfasst::examples::advection_diffusion::AdvectionDiffusionSweeper<>::init_opts();
+        pfasst::config::options::add_option<size_t>("Advec", "spatial_dofs_coarse", "Number of spatial degrees of freedom at coarse level");
+        pfasst::config::options::add_option<size_t>("Advec", "num_nodes_coarse", "Number of collocation nodes for coarse sweeper");
+      }
+    
       /**
        * Advection/diffusion example using an encapsulated IMEX sweeper.
        *
@@ -104,7 +112,7 @@ int main(int argc, char** argv)
 {
   MPI_Init(&argc, &argv);
   pfasst::init(argc, argv,
-               pfasst::examples::advection_diffusion::AdvectionDiffusionSweeper<>::init_opts,
+               pfasst::examples::advection_diffusion::pfasst_init_opts,
                pfasst::examples::advection_diffusion::AdvectionDiffusionSweeper<>::init_logs);
 
   const double tend        = pfasst::config::get_value<double>("tend", 0.04);
@@ -114,10 +122,10 @@ int main(int argc, char** argv)
   const size_t niters      = pfasst::config::get_value<size_t>("num_iter", 4);
   const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 0.0);
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
-
+  const size_t nnodes_c = pfasst::config::get_value<size_t>("num_nodes_coarse", ndofs_f / 2);
+  const size_t ndofs_c = pfasst::config::get_value<size_t>("spatial_dofs_coarse", (nnodes_f + 1) / 2);
+  
   const size_t nsteps = tend / dt;
-  const size_t nnodes_c = (nnodes_f + 1) / 2;
-  const size_t ndofs_c = ndofs_f / 2;
 
   pfasst::examples::advection_diffusion::run_mpi_pfasst(abs_res_tol, rel_res_tol,
                                                         niters, nsteps, dt,

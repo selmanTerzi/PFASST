@@ -29,7 +29,7 @@ namespace pfasst
         double tInterpolRestrict = 0.0; // variable for timing of interpolation and restriction operations
         double tCommunication = 0.0; // variable for timing of communication
         
-        double div = this->get_end_time()/this->get_time_step();
+        double div = this->get_end_time()/this->get_step_size();
         if(div - size_t(div) > 0) {
           CLOG(ERROR, "Controller") << "invalid time step: dt must be a divisor of tend";
           throw ValueError("invalid time step: dt must be a divisor of tend");
@@ -46,7 +46,7 @@ namespace pfasst
           if(this->get_time() >= this->get_end_time()) break;
           
           bool initial = firstRank && nblock == 0;
-          bool hasSuccessor = this->get_time() + this->get_time_step() < this->get_end_time();
+          bool hasSuccessor = this->get_time() + this->get_step_size() < this->get_end_time();
           
           for(this->set_iteration(0);
               this->get_iteration() < this->get_max_iterations() && !done; 
