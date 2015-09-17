@@ -122,8 +122,8 @@ int main(int argc, char** argv)
   const size_t niters      = pfasst::config::get_value<size_t>("num_iter", 4);
   const double abs_res_tol = pfasst::config::get_value<double>("abs_res_tol", 0.0);
   const double rel_res_tol = pfasst::config::get_value<double>("rel_res_tol", 0.0);
-  const size_t nnodes_c = pfasst::config::get_value<size_t>("num_nodes_coarse", ndofs_f / 2);
-  const size_t ndofs_c = pfasst::config::get_value<size_t>("spatial_dofs_coarse", (nnodes_f + 1) / 2);
+  const size_t nnodes_c = pfasst::config::get_value<size_t>("num_nodes_coarse", (nnodes_f + 1) / 2);
+  const size_t ndofs_c = pfasst::config::get_value<size_t>("spatial_dofs_coarse", ndofs_f / 2);
   
   const size_t nsteps = tend / dt;
 
