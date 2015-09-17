@@ -37,8 +37,6 @@ namespace pfasst
         shared_ptr<ISweeper<>> fineSweeper = this->get_finest();
         shared_ptr<ISweeper<>> coarseSweeper = this->get_coarsest();
         
-        MPI_Barrier(MPI_COMM_WORLD);
-        
         for(size_t nblock = 0; nblock < nblocks; nblock++) { // loop over time blocks
           this->set_step(commSize * nblock + commRank);
           
@@ -191,8 +189,8 @@ namespace pfasst
             tCommunication += MPI_Wtime() - timeMeasure;
           }
         } // loop over time blocks
-        CLOG(INFO, "Advec") << "time Measurement Interpolation: " << tInterpolRestrict;
-        CLOG(INFO, "Advec") << "time Measurement Communication: " << tCommunication;
+        CLOG(INFO, "Parareal") << "time Measurement Interpolation: " << tInterpolRestrict;
+        CLOG(INFO, "Parareal") << "time Measurement Communication: " << tCommunication;
       }
       
       template<typename time>

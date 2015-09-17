@@ -82,7 +82,7 @@ namespace pfasst
         double timeMeasure = MPI_Wtime();
         para.run();
         timeMeasure = MPI_Wtime() - timeMeasure;
-        CLOG(INFO, "Advec") << "time Measurement: " << timeMeasure;
+        CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
       }
     }  // ::parareal
   }  // ::examples

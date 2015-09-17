@@ -54,7 +54,10 @@ namespace pfasst
           
           size_t numTiters; // number of parareal repetitions
           
-          double timeMeasure;
+          double timeMeasure; // variable for for total timing
+          double timeMeasureTmp; // tmp variable for timings
+          double tInterpolRestrict = 0.0; // variable for timing of interpolation and restriction operations
+          double tCommunication = 0.0; // variable for timing of communication
           
           shared_ptr<SDC<time>> getSDC(const size_t nnodes, 
                                        const pfasst::quadrature::QuadratureType quad_type, 
@@ -127,13 +130,17 @@ namespace pfasst
             coarse->set_iteration(0);
             EncapSweeper<time>& coarseSweeper = as_encap_sweeper<time>(coarse->get_finest());
             
+            timeMeasureTmp = MPI_Wtime();
             if(start_state) transfer->restrict(coarseSweeper.get_start_state(), start_state);
+            tInterpolRestrict += MPI_Wtime() - timeMeasureTmp;
                 
             CLOG(INFO, "Parareal") << "Coarse-Sweep";
             
             coarse->run();
             
+            timeMeasureTmp = MPI_Wtime();
             transfer->interpolate(end_state, coarseSweeper.get_end_state());
+            tInterpolRestrict += MPI_Wtime() - timeMeasureTmp;
           }
           
           void do_fine(shared_ptr<Encapsulation<>> start_state,
@@ -154,6 +161,7 @@ namespace pfasst
           void recvState(shared_ptr<Encapsulation<double>> state, const size_t k, const size_t j, bool* prec_done)
           {
             CLOG(INFO, "Parareal") << "Recv tag: " << tag(k, j, commRank);
+            timeMeasureTmp = MPI_Wtime();
             state->recv(comm, tag(k, j, commRank), true);
             
             if(commRank > 0)
@@ -161,6 +169,7 @@ namespace pfasst
               comm->status->recv(0);
               *prec_done = comm->status->get_converged(commRank - 1);
             }
+            tCommunication += MPI_Wtime() - timeMeasureTmp;
           }
           
           int tag(const size_t k, const size_t j, int commRank) 
@@ -297,11 +306,13 @@ namespace pfasst
                 
                 if(commRank < commSize - 1 && (nglobal+1)*dt <= t_end) {
                   CLOG(INFO, "Parareal") << "Send tag: " << tag(k, j, commRank+1);
+                  timeMeasureTmp = MPI_Wtime();
                   u->send(comm, tag(k, j, commRank+1), true);
                   
                   done = done || commRank < k;
                   comm->status->set_converged(done);
                   comm->status->send(0);
+                  tCommunication += MPI_Wtime() - timeMeasureTmp;
                 }
               } // loop over parareal iterations
               
@@ -311,12 +322,16 @@ namespace pfasst
               
               if(j < numTiters - 1 && commRank == commSize - 1) {
                 CLOG(INFO, "Parareal") << "Send tag: " << tag(0, j+1, 0);
+                timeMeasureTmp = MPI_Wtime();
                 u->send(comm, tag(0, j+1, 0), true); // Send to proc with rank 0
+                tCommunication += MPI_Wtime() - timeMeasureTmp;
               }
             } // loop over time blocks
               
             timeMeasure = MPI_Wtime() - timeMeasure;
             CLOG(INFO, "Parareal") << "time Measurement: " << timeMeasure;
+            CLOG(INFO, "Parareal") << "time Measurement Interpolation: " << tInterpolRestrict;
+            CLOG(INFO, "Parareal") << "time Measurement Communication: " << tCommunication;
           } // function run_parareal
       }; // Class Parareal
     } // ::parareal
