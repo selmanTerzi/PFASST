@@ -44,14 +44,14 @@ namespace pfasst
       return;
     }
 
-    int nblocks = int(this->get_end_time() / this->get_time_step()) / comm->size();
+    int nblocks = int(this->get_end_time() / this->get_step_size()) / comm->size();
 
     if (nblocks == 0) {
       CLOG(INFO, "Controller") << "invalid duration: there are more time processors than time steps";
       throw ValueError("invalid duration: there are more time processors than time steps");
     }
 
-    if (nblocks * comm->size() * this->get_time_step() < this->get_end_time()) {
+    if (nblocks * comm->size() * this->get_step_size() < this->get_end_time()) {
       CLOG(INFO, "Controller") << "invalid duration: mismatch between number of time processors and time steps";
       throw ValueError("invalid duration: mismatch between number of time processors and time steps");
     }
@@ -59,12 +59,9 @@ namespace pfasst
     for (int nblock = 0; nblock < nblocks; nblock++) {
       this->set_step(nblock * comm->size() + comm->rank());
 
-      if (this->comm->size() == 1) {
-        predict = true;
-      } else {
-        predictor();
-      }
+      predictor();
 
+      CLOG(DEBUG, "Controller") << "iterating on step " << this->get_step() << " (0/" << this->get_max_iterations() << ")";
       for (this->set_iteration(0);
            this->get_iteration() < this->get_max_iterations() && this->comm->status->keep_iterating();
            this->advance_iteration()) {
@@ -74,6 +71,7 @@ namespace pfasst
         }
         cycle_v(this->finest());
       }
+      CLOG(DEBUG, "Controller") << "done iterating on step " << this->get_step() << " (" << this->get_iteration() << "/" << this->get_max_iterations() << ")";
 
       for (auto l = this->finest(); l >= this->coarsest(); --l) {
         l.current()->post_step();
@@ -102,7 +100,7 @@ namespace pfasst
 
     fine->send(comm, tag(l), false);
     trns->restrict(crse, fine, true);
-    trns->fas(this->get_time_step(), crse, fine);
+    trns->fas(this->get_step_size(), crse, fine);
     crse->save();
 
     return l - 1;
