@@ -91,7 +91,10 @@ namespace pfasst
               int t = tag(k, nblock, commRank);
               
               CVLOG(2, "Parareal") << "recv coarse initial state";
+              timeMeasure = MPI_Wtime();
               coarseEncap->recv(comm, t, true);
+              tCommunication += MPI_Wtime() - timeMeasure;
+              
               CVLOG(2, "Parareal") << "interpolate initial state"; 
               timeMeasure = MPI_Wtime();        
               transferFunc->interpolate_initial(fineSweeper, coarseSweeper);
@@ -102,12 +105,15 @@ namespace pfasst
               }
               
               if(!predict) {
+                timeMeasure = MPI_Wtime();
                 CVLOG(2, "Parareal") << "reevaluate coarse initial";
                 coarseEncap->reevaluate(true);
+                
                 CVLOG(2, "Parareal") << "reevaluate fine initial";
                 fineEncap->reevaluate(true);
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
+                tInterpolRestrict += MPI_Wtime() - timeMeasure;
               }
             }
             
@@ -143,7 +149,9 @@ namespace pfasst
               int t = tag(k, nblock, commRank + 1);
               if(predict) {
                 CVLOG(2, "Parareal") << "Send coarse end_state";
+                timeMeasure = MPI_Wtime();
                 coarseEncap->send(comm, t, true);
+                tCommunication += MPI_Wtime() - timeMeasure;
               }
               else {
               	if(doCoarse) {
@@ -156,10 +164,14 @@ namespace pfasst
                   transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
                   tInterpolRestrict += MPI_Wtime() - timeMeasure; 
                   
+                  timeMeasure = MPI_Wtime();
                   coarseEncap->send(comm, t, true);
+                  tCommunication += MPI_Wtime() - timeMeasure;
               	}
+              	timeMeasure = MPI_Wtime();
               	comm->status->set_converged(done);
-                comm->status->send(t);   
+                comm->status->send(t);
+                tCommunication += MPI_Wtime() - timeMeasure;
               }
             }
           } // loop over parareal iterations
@@ -174,10 +186,13 @@ namespace pfasst
             transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
             tInterpolRestrict += MPI_Wtime() - timeMeasure; 
             
+            timeMeasure = MPI_Wtime();
             coarseEncap->send(comm, tag(0, nblock+1, 0), true);
+            tCommunication += MPI_Wtime() - timeMeasure;
           }
         } // loop over time blocks
         CLOG(INFO, "Advec") << "time Measurement Interpolation: " << tInterpolRestrict;
+        CLOG(INFO, "Advec") << "time Measurement Communication: " << tCommunication;
       }
       
       template<typename time>
@@ -205,7 +220,10 @@ namespace pfasst
         
         coarseState->saxpy(1.0, coarseEncap->get_end_state());
         coarseState->saxpy(-1.0, coarseEncap->get_saved_state(coarseEncap->get_nodes().size()-1));
+        
+        timeMeasure = MPI_Wtime();
         coarseState->send(comm, tag, true);
+        tCommunication += MPI_Wtime() - timeMeasure;
       }
       
       template<typename time>

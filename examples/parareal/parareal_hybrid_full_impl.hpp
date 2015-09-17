@@ -27,6 +27,7 @@ namespace pfasst
         bool recvStartValue = false; // boolean for determining if a new startValue must be received
         double timeMeasure = 0.0; // variable for timings
         double tInterpolRestrict = 0.0; // variable for timing of interpolation and restriction operations
+        double tCommunication = 0.0; // variable for timing of communication
         
         double div = this->get_end_time()/this->get_time_step();
         if(div - size_t(div) > 0) {
@@ -97,6 +98,7 @@ namespace pfasst
               int t = tag(k, nblock, commRank);
               
               CVLOG(2, "Parareal") << "recv Coarse Initial state";
+              timeMeasure = MPI_Wtime();
               coarseEncap->recv(comm, t, true);
               
               if(!predict) {
@@ -105,6 +107,7 @@ namespace pfasst
                 comm->status->recv(t);
                 prec_done = comm->status->get_converged(commRank - 1);
               }
+              tCommunication += MPI_Wtime() - timeMeasure;
             }
             
             if(predict) {
@@ -137,11 +140,13 @@ namespace pfasst
             if(!lastRank && hasSuccessor) {
               int t = tag(k, nblock,commRank+1);
               CVLOG(2, "Parareal") << "Send coarse end_state";
+              timeMeasure = MPI_Wtime();
               coarseEncap->send(comm, t, true);
               if(!predict) {
                 comm->status->set_converged(done);
                 comm->status->send(t);
               }
+              tCommunication += MPI_Wtime() - timeMeasure;
             }
           } // loop over parareal iterations
             
@@ -155,10 +160,14 @@ namespace pfasst
             transferFunc->restrict(coarseEncap->get_end_state(), fineEncap->get_end_state());
             tInterpolRestrict += MPI_Wtime() - timeMeasure;
             
+            
+            timeMeasure = MPI_Wtime();
             coarseEncap->send(comm, tag(0, nblock+1, 0), true);
+            tCommunication += MPI_Wtime() - timeMeasure;
           }
         } // loop over time blocks
         CLOG(INFO, "Advec") << "time Measurement Interpolation: " << tInterpolRestrict;
+        CLOG(INFO, "Advec") << "time Measurement Communication: " << tCommunication;
       }
       
       template<typename time>
