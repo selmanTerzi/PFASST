@@ -1,6 +1,7 @@
 __author__ = 's.terzi'
 import re
 import glob
+import numpy
 from subprocess import *
 from ProcessStarter import RunTypes
 
@@ -12,21 +13,27 @@ errParaString = "ErrorParareal"
 diffResString = "DiffResidual"
 
 class Result:
-    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input):
+    def __init__(self, errMap, resMap, iterMap, maxIter, maxStep, timing, input):
         self.input = input
         self.errMap = errMap
         self.resMap = resMap
         self.iterMap = iterMap
         self.maxIter = maxIter
         self.maxStep = maxStep
-        self.timeMeasure = timeMeasure
-        self.interpolTimeMeasure = interpolTimeMeasure
-        self.commTimeMeasure = commTimeMeasure
+        self.timing = timing
 
 
-def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input):
+class Timing:
+    def __init__(self, nproc, totalTimes, interpolTimes, communicationTimes):
+        self.nproc = nproc
+        self.totalTimes = totalTimes
+        self.interpolTimes = interpolTimes
+        self.communicationTimes = communicationTimes
+
+
+def getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timing, input):
     errMap, resMap = fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep)
-    return Result(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input)
+    return Result(errMap, resMap, iterMap, maxIter, maxStep, timing, input)
 
 
 def fillErrMapAndResMap(errMap, resMap, iterMap, maxIter, maxStep):
@@ -134,12 +141,16 @@ def getResult(runtype, input, dir='.'):
     iterMap = {}
     maxIter = 0
     maxStep = 0
-    timeMeasure = 0
-    interpolTimeMeasure = 0
-    commTimeMeasure = 0
+
 
     pattern = dir + '/*.log'
-    for fileName in sorted(glob.glob(pattern)):
+    fileNames = sorted(glob.glob(pattern))
+    nproc = len(fileNames)
+    totalTimes = numpy.zeros(nproc)
+    interpolTimes = numpy.zeros(nproc)
+    communicationTimes = numpy.zeros(nproc)
+    np = 0
+    for fileName in fileNames:
         with open(fileName, 'r') as file:
             param = file
             if runtype == RunTypes.PFASST:
@@ -152,14 +163,13 @@ def getResult(runtype, input, dir='.'):
 
         if maxIterLocal > maxIter: maxIter = maxIterLocal
         if maxStepLocal > maxStep: maxStep = maxStepLocal
-        if t > timeMeasure:
-            timeMeasure = t
-        if tInterpol > interpolTimeMeasure:
-            interpolTimeMeasure = tInterpol
-        if tComm > commTimeMeasure:
-            commTimeMeasure = tComm
+        totalTimes[np] = t
+        interpolTimes[np] = tInterpol
+        communicationTimes[np] = tComm
+        np += 1
 
-    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep, timeMeasure, interpolTimeMeasure, commTimeMeasure, input)
+    return getResultObj(errMap, resMap, iterMap, maxIter, maxStep,
+                        Timing(nproc, totalTimes, interpolTimes, communicationTimes), input)
 
 
 def mergeDictionaries(dicA, dicB):
