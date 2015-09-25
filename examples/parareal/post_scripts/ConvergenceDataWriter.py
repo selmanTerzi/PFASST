@@ -46,6 +46,7 @@ def runConvergenceTest(runTypes, num_nodes, dtSteps):
 
 runTypes = [
             RunTypes.SDC_Fine,
+            RunTypes.SDC_Coarse,
             RunTypes.PARA_CLASSIC,
             RunTypes.PARA_HYBRID_FULL,
             RunTypes.PARA_HYBRID_PARTIAL
