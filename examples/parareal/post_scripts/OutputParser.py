@@ -1,4 +1,3 @@
-__author__ = 's.terzi'
 import re
 import glob
 import numpy
@@ -141,7 +140,6 @@ def getResult(runtype, input, dir='.'):
     iterMap = {}
     maxIter = 0
     maxStep = 0
-
 
     pattern = dir + '/*.log'
     fileNames = sorted(glob.glob(pattern))

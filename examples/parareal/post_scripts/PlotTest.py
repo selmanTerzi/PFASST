@@ -1,37 +1,53 @@
 __author__ = 's.terzi'
 
-from Plotter import *
 from ProcessStarter import RunTypes
+from Plotter import *
 
 nprocs = [
           # 0,
-          2,
-          4,
-          8,
+          # 2,
+          # 4,
+          # 8,
           16,
           32,
           64
           ]
 
 plotData = [
-            # RunTypes.SDC_Fine,
-            # RunTypes.SDC_Coarse,
+            RunTypes.SDC_Fine,
+            RunTypes.SDC_Coarse,
             RunTypes.PARA_CLASSIC,
-            RunTypes.PARA_HYBRID_FULL,
             RunTypes.PARA_HYBRID_PARTIAL,
+            RunTypes.PARA_HYBRID_FULL,
             # RunTypes.PFASST,
             ]
 
 plotTypes = [
-             PlotTypes.SpeedUp,
+             # PlotTypes.SpeedUp,
+             PlotTypes.SpeedUpAlpha,
              # PlotTypes.Efficiency,
              # PlotTypes.AllIterationErrors,
              # PlotTypes.AllIterationResiduals,
-             PlotTypes.LastStepError,
-             PlotTypes.LastStepResidual,
+             # PlotTypes.LastStepError,
+             # PlotTypes.LastStepResidual,
              # PlotTypes.LastIterationError,
              # PlotTypes.Iter,
-             # PlotTypes.ConvergenceData
+             # PlotTypes.ConvergenceData,
+             # PlotTypes.Timings
              ]
 
-plot(plotTypes, plotData, nprocs)
+dirs = [
+        # 'runs_001',
+        'runs_002',
+        'runs_003',
+        'runs_004'
+        ]
+for dir in dirs:
+    plot(plotTypes, plotData, nprocs, root=dir)
+
+# dirs = [
+#         'ConvergenceDataSpatialCoarsening',
+#         'ConvergenceDataTimeSpatialCoarsening'
+#         ]
+# for dir in dirs:
+#     plot([PlotTypes.ConvergenceData], plotData, nprocs, root=dir)
