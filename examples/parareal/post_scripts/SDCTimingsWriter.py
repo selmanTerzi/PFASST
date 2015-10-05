@@ -20,16 +20,15 @@ def getRuntime(fileName):
     return t
 
 
-def getAlphas(roots):
-    alphas = {}
+def getTimings(roots):
+    timings = {}
     for root in roots:
         dir = runDirectorysRoot + '/' + root + '/alphas'
         i = int(re.findall("runs_00(\d*)", root)[0])
         tCoarse = getRuntime(dir + '/sdc_coarse/*.log')
         tFine = getRuntime(dir + '/sdc_fine/*.log')
-        alphas[i] = [tCoarse, tFine]
-    print(alphas)
-    return alphas
+        timings[i] = [tCoarse, tFine]
+    return timings
 
 
 roots = [
@@ -38,4 +37,4 @@ roots = [
         'runs_004'
         ]
 with open('Timings', 'wb') as f:
-    pickle.dump(getAlphas(roots), f)
+    pickle.dump(getTimings(roots), f)
